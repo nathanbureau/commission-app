@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bureau / Commission</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Space+Grotesk:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+/* ─ if National2Condensed is available as a self-hosted asset, inject it above this comment ─ */
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+
+:root {
+  --bg:      #F7F4E7;
+  --surface: #EDEADE;
+  --border:  #C4C3C1;
+  --focus:   #213741;
+  --text:    #213741;
+  --muted:   #7A7A78;
+  --accent:  #3171F1;
+  --orange:  #FF603B;
+  --navy:    #213741;
+  --sg:      'Space Grotesk', sans-serif;
+  --display: 'National2Condensed', 'Barlow Condensed', 'Arial Narrow', sans-serif;
+}
+
+body {
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--sg);
+  font-size:14px;
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+}
+
+/* ─ header ─────────────────────────────────────────────────────────────── */
+.hdr {
+  background:var(--navy);
+  padding:0 32px;
+  height:54px;
+  display:flex;
+  align-items:center;
+  gap:16px;
+  position:sticky;
+  top:0;
+  z-index:100;
+}
+.hdr-wordmark {
+  font-family:var(--display);
+  font-size:20px;
+  font-weight:700;
+  color:#F7F4E7;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  line-height:1;
+}
+.hdr-div { width:1px; height:20px; background:#35515e; flex-shrink:0; }
+.hdr-sub { font-size:10px; color:#8BA4AD; letter-spacing:.2em; text-transform:uppercase; }
+.hdr-nav { margin-left:auto; display:flex; }
+.hdr-btn {
+  font-family:var(--sg);
+  font-size:11px;
+  font-weight:500;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  color:#8BA4AD;
+  background:none;
+  border:none;
+  border-bottom:2px solid transparent;
+  padding:0 16px;
+  height:54px;
+  cursor:pointer;
+  transition:color .12s,border-color .12s;
+}
+.hdr-btn:hover { color:#F7F4E7; }
+.hdr-btn.active { color:#F7F4E7; border-bottom-color:var(--orange); }
+
+/* ─ pages ───────────────────────────────────────────────────────────────── */
+.page { display:none; max-width:1100px; margin:0 auto; padding:40px 32px 80px; }
+.page.active { display:block; }
+
+/* ─ page heading ─────────────────────────────────────────────────────────── */
+.ph {
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:24px;
+  padding-bottom:26px;
+  margin-bottom:30px;
+  border-bottom:1px solid var(--border);
+}
+.ph-title {
+  font-family:var(--display);
+  font-size:44px;
+  font-weight:700;
+  letter-spacing:.03em;
+  line-height:1;
+  text-transform:uppercase;
+}
+.ph-sub { font-size:12px; color:var(--muted); margin-top:6px; line-height:1.5; }
+
+/* ─ controls ─────────────────────────────────────────────────────────────── */
+.row { display:flex; align-items:center; gap:12px; margin-bottom:24px; flex-wrap:wrap; }
+.lbl { font-size:10px; font-weight:500; letter-spacing:.18em; text-transform:uppercase; color:var(--muted); }
+select {
+  font-family:var(--sg);
+  font-size:13px;
+  border:1px solid var(--border);
+  border-radius:4px;
+  padding:7px 28px 7px 10px;
+  background:var(--bg);
+  color:var(--text);
+  cursor:pointer;
+  appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23213741' stroke-opacity='.4' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 9px center;
+}
+select:focus { outline:none; border-color:var(--focus); }
+.badge {
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--orange);
+  border:1px solid rgba(255,96,59,.28);
+  background:rgba(255,96,59,.05);
+  padding:4px 10px;
+  border-radius:3px;
+}
+
+/* ─ metrics ──────────────────────────────────────────────────────────────── */
+.metrics {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(148px,1fr));
+  gap:1px;
+  background:var(--border);
+  border:1px solid var(--border);
+  border-radius:8px;
+  overflow:hidden;
+  margin-bottom:26px;
+}
+.metric { background:var(--bg); padding:18px 22px; }
+.metric-lbl { font-size:10px; font-weight:500; letter-spacing:.18em; text-transform:uppercase; color:var(--muted); }
+.metric-val { font-size:28px; font-weight:600; letter-spacing:-.5px; margin-top:5px; }
+.metric-val.or { color:var(--orange); }
+
+/* ─ tabs ─────────────────────────────────────────────────────────────────── */
+.tabs { display:flex; border-bottom:1px solid var(--border); }
+.tab {
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.15em;
+  text-transform:uppercase;
+  color:var(--muted);
+  padding:10px 18px;
+  cursor:pointer;
+  border-bottom:2px solid transparent;
+  margin-bottom:-1px;
+  transition:color .1s,border-color .1s;
+}
+.tab:hover { color:var(--text); }
+.tab.active { color:var(--text); border-bottom-color:var(--navy); }
+
+/* ─ table ────────────────────────────────────────────────────────────────── */
+.tbl-wrap { border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+table { width:100%; border-collapse:collapse; }
+thead tr { background:var(--navy); }
+thead th {
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.15em;
+  text-transform:uppercase;
+  color:#8BA4AD;
+  padding:11px 16px;
+  text-align:left;
+  white-space:nowrap;
+}
+thead th.r { text-align:right; }
+tbody tr { border-bottom:1px solid var(--border); }
+tbody tr:last-child { border-bottom:none; }
+tbody tr:hover { background:rgba(33,55,65,.025); }
+tbody tr.totrow { background:var(--surface); border-top:2px solid var(--border); }
+tbody tr.totrow td { font-weight:600; }
+td { padding:12px 16px; font-size:13px; vertical-align:middle; }
+td.r { text-align:right; }
+td.mono { font-variant-numeric:tabular-nums; }
+.rep-n { font-weight:600; }
+.rep-t {
+  font-size:9px;
+  font-weight:600;
+  letter-spacing:.1em;
+  color:var(--muted);
+  background:var(--surface);
+  padding:2px 7px;
+  border-radius:3px;
+  margin-left:7px;
+  text-transform:uppercase;
+  vertical-align:middle;
+}
+.or { color:var(--orange); }
+.dim { color:var(--muted); }
+.paid-in {
+  font-family:var(--sg);
+  font-size:13px;
+  border:1px solid var(--border);
+  border-radius:4px;
+  padding:5px 8px;
+  width:116px;
+  text-align:right;
+  background:var(--bg);
+  color:var(--text);
+  font-variant-numeric:tabular-nums;
+}
+.paid-in:focus { outline:none; border-color:var(--focus); }
+
+/* ─ action bar ───────────────────────────────────────────────────────────── */
+.abar {
+  display:flex;
+  align-items:center;
+  gap:14px;
+  padding:14px 16px;
+  background:var(--surface);
+  border-top:1px solid var(--border);
+}
+.abar-note { font-size:11px; color:var(--muted); }
+
+/* ─ buttons ──────────────────────────────────────────────────────────────── */
+.btn {
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  font-family:var(--sg);
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  padding:9px 20px;
+  border-radius:4px;
+  border:none;
+  cursor:pointer;
+  transition:background .12s, opacity .12s;
+  white-space:nowrap;
+  flex-shrink:0;
+}
+.btn-navy   { background:var(--navy);   color:#F7F4E7; }
+.btn-navy:hover  { background:#2d4a57; }
+.btn-orange { background:var(--orange); color:#fff; }
+.btn-orange:hover { background:#e8542f; }
+.btn-ghost  { background:transparent;  color:var(--text); border:1px solid var(--border); }
+.btn-ghost:hover  { background:var(--surface); }
+.btn:disabled { opacity:.34; cursor:not-allowed; }
+
+/* ─ import cards ─────────────────────────────────────────────────────────── */
+.sec-lbl {
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.18em;
+  text-transform:uppercase;
+  color:var(--muted);
+  margin-bottom:10px;
+}
+.ugrid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px; }
+.ucard {
+  border:1.5px dashed var(--border);
+  border-radius:8px;
+  padding:20px;
+  cursor:pointer;
+  background:var(--bg);
+  transition:border-color .12s, background .12s;
+}
+.ucard:hover { border-color:var(--navy); }
+.ucard.loaded { border-style:solid; border-color:var(--navy); }
+.uc-name { font-size:13px; font-weight:600; }
+.uc-sub  { font-size:11px; color:var(--muted); margin-top:4px; line-height:1.4; }
+.uc-file { font-size:11px; color:var(--orange); margin-top:10px; }
+.uc-acts { margin-top:14px; }
+
+.calc-bar {
+  background:var(--navy);
+  border-radius:8px;
+  padding:24px 28px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:24px;
+}
+.calc-lbl { font-size:15px; font-weight:600; color:#F7F4E7; }
+.calc-sub { font-size:11px; color:#8BA4AD; margin-top:4px; }
+.calc-res { font-size:11px; color:#8BA4AD; margin-top:8px; }
+
+/* ─ admin cards ──────────────────────────────────────────────────────────── */
+.acard { border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-bottom:16px; }
+.acard-hd {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:14px 20px;
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+}
+.acard-title { font-size:13px; font-weight:600; }
+.acard-body  { padding:20px; }
+.note-sm { font-size:11px; color:var(--muted); margin-bottom:14px; line-height:1.5; }
+.s-input {
+  width:100%;
+  font-family:var(--sg);
+  font-size:13px;
+  border:1px solid var(--border);
+  border-radius:4px;
+  padding:7px 10px;
+  background:var(--bg);
+  color:var(--text);
+  margin-bottom:12px;
+}
+.s-input:focus { outline:none; border-color:var(--focus); }
+
+/* ─ alerts ───────────────────────────────────────────────────────────────── */
+.alert { padding:10px 14px; border-radius:6px; font-size:12px; margin-bottom:14px; line-height:1.5; }
+.alert-w  { background:rgba(255,96,59,.06);  border:1px solid rgba(255,96,59,.2);   color:#8b3020; }
+.alert-ok { background:rgba(49,113,241,.05); border:1px solid rgba(49,113,241,.2);  color:#1a3d8a; }
+.alert-i  { background:rgba(33,55,65,.04);   border:1px solid var(--border); }
+
+/* ─ spinner ──────────────────────────────────────────────────────────────── */
+@keyframes spin { to { transform:rotate(360deg); } }
+.spin {
+  width:12px; height:12px;
+  border:2px solid rgba(255,255,255,.25);
+  border-top-color:#fff;
+  border-radius:50%;
+  animation:spin .55s linear infinite;
+  display:inline-block;
+  flex-shrink:0;
+}
+.spin-dk { border-color:rgba(33,55,65,.2); border-top-color:var(--navy); }
+
+/* ─ toast ────────────────────────────────────────────────────────────────── */
+#toast {
+  position:fixed;
+  bottom:28px;
+  left:50%;
+  transform:translateX(-50%) translateY(8px);
+  background:var(--navy);
+  color:#F7F4E7;
+  font-family:var(--sg);
+  font-size:11px;
+  font-weight:500;
+  letter-spacing:.06em;
+  padding:10px 20px;
+  border-radius:4px;
+  opacity:0;
+  transition:all .18s;
+  pointer-events:none;
+  z-index:9999;
+  white-space:nowrap;
+}
+#toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+/* ─ misc ─────────────────────────────────────────────────────────────────── */
+.empty {
+  text-align:center;
+  padding:48px;
+  font-size:11px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:var(--muted);
+}
+.hs-link { font-size:11px; color:var(--accent); text-decoration:none; }
+.hs-link:hover { text-decoration:underline; }
+
+@media(max-width:640px){
+  .ugrid { grid-template-columns:1fr; }
+  .ph { flex-direction:column; align-items:flex-start; }
+  .hdr { padding:0 16px; }
+  .page { padding:24px 16px 60px; }
+}
+</style>
+</head>
+<body>
+
+<!-- header -->
+<div class="hdr">
+  <div class="hdr-wordmark">Bureau</div>
+  <div class="hdr-div"></div>
+  <div class="hdr-sub">Commission</div>
+  <div class="hdr-nav">
+    <button class="hdr-btn active" onclick="nav('pay',this)">Pay</button>
+    <button class="hdr-btn"        onclick="nav('import',this)">Import</button>
+    <button class="hdr-btn"        onclick="nav('admin',this)">Admin</button>
+  </div>
+</div>
+
+<!-- pay -->
+<div id="page-pay" class="page active">
+  <div class="ph">
+    <div>
+      <div class="ph-title">Monthly Payout</div>
+      <div class="ph-sub">Commission paid monthly. Quarterly bonus paid in March, June, September and December.</div>
+    </div>
+    <button class="btn btn-navy" onclick="downloadReports()" id="btn-reports">Download Reports</button>
+  </div>
+  <div class="row">
+    <span class="lbl">Period</span>
+    <select id="month-sel" onchange="loadPayout()"><option>Loading…</option></select>
+    <span id="q-badge" style="display:none" class="badge"></span>
+  </div>
+  <div id="metrics-row" class="metrics" style="display:none"></div>
+  <div id="payout-warn"></div>
+  <div class="tbl-wrap">
+    <div class="tabs" id="region-tabs"></div>
+    <div id="payout-table"><div class="empty">Select a period above</div></div>
+    <div class="abar">
+      <button class="btn btn-orange" onclick="savePayouts()" id="btn-save">Mark as Paid</button>
+      <span class="abar-note" id="save-note"></span>
+    </div>
+  </div>
+</div>
+
+<!-- import -->
+<div id="page-import" class="page">
+  <div class="ph">
+    <div>
+      <div class="ph-title">Import</div>
+      <div class="ph-sub">Upload source files then run Calculate. Safe to re-run at any time.</div>
+    </div>
+  </div>
+
+  <div class="sec-lbl">HubSpot</div>
+  <div class="ucard" id="box-hs" onclick="document.getElementById('file-hs').click()" style="margin-bottom:24px">
+    <div class="uc-name">HubSpot Deals</div>
+    <div class="uc-sub">Full deals export — all regions, all columns</div>
+    <div class="uc-file" id="fname-hs">Click to upload CSV</div>
+    <div class="uc-acts">
+      <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-hs" disabled
+        onclick="event.stopPropagation();importSource('hs')">Import HubSpot</button>
+    </div>
+  </div>
+  <input type="file" id="file-hs" accept=".csv" style="display:none" onchange="handleFile('hs',this)">
+
+  <div class="sec-lbl">QuickBooks</div>
+  <div class="ugrid">
+    <div class="ucard" id="box-qb-us" onclick="document.getElementById('file-qb-us').click()">
+      <div class="uc-name">QB United States</div>
+      <div class="uc-sub">Inbox Booths LLC — Invoices and Received Payments</div>
+      <div class="uc-file" id="fname-qb-us">Click to upload CSV</div>
+      <div class="uc-acts">
+        <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-qb-us" disabled
+          onclick="event.stopPropagation();importSource('qb-us')">Import QB US</button>
+      </div>
+    </div>
+    <div class="ucard" id="box-qb-ca" onclick="document.getElementById('file-qb-ca').click()">
+      <div class="uc-name">QB Canada</div>
+      <div class="uc-sub">Inbox Design Inc. — Invoices and Received Payments</div>
+      <div class="uc-file" id="fname-qb-ca">Click to upload CSV</div>
+      <div class="uc-acts">
+        <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-qb-ca" disabled
+          onclick="event.stopPropagation();importSource('qb-ca')">Import QB Canada</button>
+      </div>
+    </div>
+  </div>
+  <input type="file" id="file-qb-us" accept=".csv" style="display:none" onchange="handleFile('qb-us',this)">
+  <input type="file" id="file-qb-ca" accept=".csv" style="display:none" onchange="handleFile('qb-ca',this)">
+
+  <div class="sec-lbl">Xero</div>
+  <div class="ugrid">
+    <div class="ucard" id="box-xero-uk" onclick="document.getElementById('file-xero-uk').click()">
+      <div class="uc-name">Xero UK</div>
+      <div class="uc-sub">Bureau Booths UK Limited — Receivable Invoice Summary</div>
+      <div class="uc-file" id="fname-xero-uk">Click to upload CSV or XLSX</div>
+      <div class="uc-acts">
+        <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-xero-uk" disabled
+          onclick="event.stopPropagation();importSource('xero-uk')">Import Xero UK</button>
+      </div>
+    </div>
+    <div class="ucard" id="box-xero-au" onclick="document.getElementById('file-xero-au').click()">
+      <div class="uc-name">Xero AUS</div>
+      <div class="uc-sub">Bureau Booths Pty Limited — must include Last Payment Date</div>
+      <div class="uc-file" id="fname-xero-au">Click to upload CSV or XLSX</div>
+      <div class="uc-acts">
+        <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-xero-au" disabled
+          onclick="event.stopPropagation();importSource('xero-au')">Import Xero AUS</button>
+      </div>
+    </div>
+  </div>
+  <input type="file" id="file-xero-uk" accept=".csv,.xlsx" style="display:none" onchange="handleFile('xero-uk',this)">
+  <input type="file" id="file-xero-au" accept=".csv,.xlsx" style="display:none" onchange="handleFile('xero-au',this)">
+
+  <div class="calc-bar">
+    <div>
+      <div class="calc-lbl">Calculate Commission</div>
+      <div class="calc-sub">Run after every import. Rebuilds all attainment and commission lines from scratch.</div>
+      <div class="calc-res" id="calc-result"></div>
+    </div>
+    <button class="btn btn-orange" onclick="calculate()" id="btn-calc">Calculate</button>
+  </div>
+</div>
+
+<!-- admin -->
+<div id="page-admin" class="page">
+  <div class="ph">
+    <div>
+      <div class="ph-title">Admin</div>
+      <div class="ph-sub">Match unlinked invoices, review data quality and payout history.</div>
+    </div>
+  </div>
+  <div class="acard">
+    <div class="acard-hd">
+      <div class="acard-title">Unlinked Invoices</div>
+      <button class="btn btn-ghost" style="font-size:10px;padding:6px 14px" onclick="loadUnlinked()">Refresh</button>
+    </div>
+    <div class="acard-body">
+      <p class="note-sm">Paid invoices not yet attached to a HubSpot deal. Link them and the next Calculate will include them.</p>
+      <div id="unlinked-container"><div class="empty">Click Refresh to load</div></div>
+    </div>
+  </div>
+  <div class="acard">
+    <div class="acard-hd">
+      <div class="acard-title">Missing Booth Items</div>
+      <button class="btn btn-ghost" style="font-size:10px;padding:6px 14px" onclick="loadMissing()">Load</button>
+    </div>
+    <div class="acard-body">
+      <div id="missing-container"><div class="empty">Click Load to check</div></div>
+    </div>
+  </div>
+  <div class="acard">
+    <div class="acard-hd">
+      <div class="acard-title">Payout History</div>
+      <button class="btn btn-ghost" style="font-size:10px;padding:6px 14px" onclick="loadHistory()">Load</button>
+    </div>
+    <div class="acard-body">
+      <div id="history-container"><div class="empty">Click Load to view</div></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+const API    = 'https://script.google.com/macros/s/AKfycbwnXl8EulBfn9eLyYdPFK0odOzqcQKz0usYg88qIV6IrhJuVFNVdd-dM7E2Ky1MopAE/exec';
+const PORTAL = 44093193;
+
+/* ─ utils ──────────────────────────────────────────────────────────────── */
+const CCY  = {USD:'$',CAD:'C$',AUD:'A$',GBP:'£',EUR:'€'};
+const sym  = c => CCY[c] || '$';
+const fmt  = (n,c) => `${sym(c)}${Number(n||0).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+const fmtK = (n,c) => `${sym(c)}${Number(n||0).toLocaleString('en-GB',{maximumFractionDigits:0})}`;
+const clr  = v => { const s=String(v||'').trim(); return ['','nan','nat','none','(no value)'].includes(s.toLowerCase())?null:s; };
+const cflt = v => parseFloat(String(v||'').replace(/[,$\s]/g,''))||0;
+const cln  = v => String(v||'').trim();
+const qOf  = d => { try { const dt=new Date(d); return isNaN(dt)?'':dt.getFullYear()>=2025?`${dt.getFullYear()} Q${Math.ceil((dt.getMonth()+1)/3)}`:''; } catch{return '';} };
+
+async function apiGet(action, params={}) {
+  const r = await fetch(`${API}?${new URLSearchParams({action,...params})}`);
+  return r.json();
+}
+async function apiPost(body) {
+  const r = await fetch(API, {method:'POST', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(body)});
+  return r.json();
+}
+
+function toast(msg, ms=3200) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), ms);
+}
+
+/* ─ nav ─────────────────────────────────────────────────────────────────── */
+function nav(id, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.hdr-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`page-${id}`).classList.add('active');
+  btn.classList.add('active');
+  if (id === 'admin') loadUnlinked();
+}
+
+/* ─ state ───────────────────────────────────────────────────────────────── */
+let payoutData  = [];
+let activeRegion = null;
+let fileStore   = {};
+let dealsCache  = null;
+
+/* ─ months ──────────────────────────────────────────────────────────────── */
+async function initMonths() {
+  const res = await apiGet('months');
+  const sel = document.getElementById('month-sel');
+  sel.innerHTML = '';
+  if (res.ok && res.data?.length) {
+    res.data.forEach(m => { const o=document.createElement('option'); o.value=o.textContent=m; sel.appendChild(o); });
+    loadPayout();
+  } else {
+    sel.innerHTML = '<option value="">No data — import first</option>';
+  }
+}
+
+/* ─ payout ──────────────────────────────────────────────────────────────── */
+async function loadPayout() {
+  const month = document.getElementById('month-sel').value;
+  if (!month) return;
+  const mo = parseInt(month.slice(5,7));
+  const isQ = [3,6,9,12].includes(mo);
+  const qMap = {3:'Q1',6:'Q2',9:'Q3',12:'Q4'};
+  const badge = document.getElementById('q-badge');
+  badge.style.display = isQ ? 'inline-block' : 'none';
+  if (isQ) badge.textContent = `${month.slice(0,4)} ${qMap[mo]} Bonus`;
+
+  document.getElementById('payout-table').innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('region-tabs').innerHTML = '';
+  document.getElementById('metrics-row').style.display = 'none';
+  document.getElementById('payout-warn').innerHTML = '';
+
+  const res = await apiGet('payout', {month});
+  if (!res.ok) { toast('Error: '+res.error); return; }
+  payoutData = res.data;
+  renderPayout(month);
+}
+
+function renderPayout(month) {
+  const mo = parseInt(month.slice(5,7));
+  const isQ = [3,6,9,12].includes(mo);
+  if (!payoutData.length) {
+    document.getElementById('payout-table').innerHTML = '<div class="empty">No commission data for this period</div>';
+    return;
+  }
+
+  const regions = [...new Set(payoutData.map(r => r.region))].sort();
+  if (!activeRegion || !regions.includes(activeRegion)) activeRegion = regions[0];
+  document.getElementById('region-tabs').innerHTML =
+    regions.map(r => `<div class="tab ${r===activeRegion?'active':''}" onclick="switchRegion('${r}',this)">${r}</div>`).join('') +
+    `<div class="tab ${activeRegion==='ALL'?'active':''}" onclick="switchRegion('ALL',this)">All</div>`;
+
+  const tc = payoutData.reduce((s,r)=>s+r.commission,0);
+  const tb = payoutData.reduce((s,r)=>s+(r.q_bonus||0),0);
+  const tp = payoutData.reduce((s,r)=>s+r.total,0);
+  const mr = document.getElementById('metrics-row');
+  mr.style.display = 'grid';
+  mr.innerHTML = `
+    <div class="metric"><div class="metric-lbl">Reps</div><div class="metric-val">${payoutData.length}</div></div>
+    <div class="metric"><div class="metric-lbl">Commission</div><div class="metric-val">${fmtK(tc,'USD')}</div></div>
+    ${isQ ? `<div class="metric"><div class="metric-lbl">Quarterly Bonus</div><div class="metric-val or">${fmtK(tb,'USD')}</div></div>` : ''}
+    <div class="metric"><div class="metric-lbl">Total Payout</div><div class="metric-val">${fmtK(tp,'USD')}</div></div>`;
+
+  const nb = payoutData.filter(r => r.deals?.some(d => !d.booth_payable));
+  document.getElementById('payout-warn').innerHTML = nb.length
+    ? `<div class="alert alert-w" style="margin-bottom:20px">&#9888; ${nb.length} rep${nb.length>1?'s have':' has'} deals with missing Booth Items — commission may be understated.</div>`
+    : '';
+
+  renderTable(month, isQ);
+}
+
+function renderTable(month, isQ) {
+  const data = activeRegion==='ALL' ? payoutData : payoutData.filter(r=>r.region===activeRegion);
+  if (!data.length) { document.getElementById('payout-table').innerHTML='<div class="empty">No data for this region</div>'; return; }
+
+  const ccy = activeRegion==='ALL' ? 'USD' : (data[0]?.currency||'USD');
+  const tc  = data.reduce((s,r)=>s+r.commission,0);
+  const tb  = data.reduce((s,r)=>s+(r.q_bonus||0),0);
+  const tp  = data.reduce((s,r)=>s+r.total,0);
+
+  document.getElementById('payout-table').innerHTML = `<table>
+    <thead><tr>
+      <th>Rep</th>
+      <th class="r">Commission</th>
+      ${isQ?'<th class="r">Quarterly Bonus</th>':''}
+      <th class="r">Total</th>
+      <th class="r">Prev. Paid</th>
+      <th class="r">Pay Amount</th>
+    </tr></thead>
+    <tbody>
+    ${data.map(r => {
+      const pid = 'paid_'+r.rep_name.replace(/\W/g,'_');
+      const payVal = (r.already_paid>0 ? r.already_paid : r.total).toFixed(2);
+      return `<tr>
+        <td><span class="rep-n">${r.rep_name}</span><span class="rep-t">${r.level}</span></td>
+        <td class="r mono">${fmt(r.commission,r.currency)}</td>
+        ${isQ?`<td class="r mono ${r.q_bonus>0?'or':''}">${r.q_bonus>0?fmt(r.q_bonus,r.currency):'<span class="dim">—</span>'}</td>`:''}
+        <td class="r"><strong>${fmt(r.total,r.currency)}</strong></td>
+        <td class="r mono dim">${r.already_paid>0?fmt(r.already_paid,r.currency):'<span>—</span>'}</td>
+        <td class="r"><input class="paid-in" type="number" value="${payVal}" step="0.01" min="0" id="${pid}"></td>
+      </tr>`;
+    }).join('')}
+    <tr class="totrow">
+      <td>Total</td>
+      <td class="r">${fmt(tc,ccy)}</td>
+      ${isQ?`<td class="r">${fmt(tb,ccy)}</td>`:''}
+      <td class="r">${fmt(tp,ccy)}</td>
+      <td></td><td></td>
+    </tr>
+    </tbody>
+  </table>`;
+}
+
+function switchRegion(r, el) {
+  activeRegion = r;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  const month = document.getElementById('month-sel').value;
+  renderTable(month, [3,6,9,12].includes(parseInt(month.slice(5,7))));
+}
+
+async function savePayouts() {
+  const month = document.getElementById('month-sel').value;
+  const btn   = document.getElementById('btn-save');
+  btn.innerHTML = '<span class="spin"></span> Saving…';
+  btn.disabled  = true;
+  const entries = payoutData.map(r => ({
+    rep_name: r.rep_name,
+    amount:   parseFloat(document.getElementById('paid_'+r.rep_name.replace(/\W/g,'_'))?.value||0),
+    currency: r.currency,
+  }));
+  const res = await apiPost({action:'save_payouts', period:month, entries});
+  btn.innerHTML = 'Mark as Paid';
+  btn.disabled  = false;
+  if (res.ok) {
+    toast('Payouts saved for '+month);
+    document.getElementById('save-note').textContent = 'Saved '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    loadPayout();
+  } else {
+    toast('Error: '+res.error);
+  }
+}
+
+/* ─ reports ─────────────────────────────────────────────────────────────── */
+async function downloadReports() {
+  if (!payoutData.length) { toast('No payout data loaded'); return; }
+  const month = document.getElementById('month-sel').value;
+  const btn   = document.getElementById('btn-reports');
+  btn.innerHTML = '<span class="spin"></span> Generating…';
+  btn.disabled  = true;
+  const isQ = [3,6,9,12].includes(parseInt(month.slice(5,7)));
+  const zip = new JSZip();
+  payoutData.forEach(rep => { if (!rep.total) return; zip.file(`${rep.rep_name.replace(/\s/g,'_')}_${month}.pdf`, buildPDF(rep,month,isQ)); });
+  const blob = await zip.generateAsync({type:'blob'});
+  Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob), download:`commission_${month}.zip`}).click();
+  btn.innerHTML = 'Download Reports';
+  btn.disabled  = false;
+  toast('Reports downloaded');
+}
+
+function buildPDF(rep, month, isQ) {
+  const {jsPDF} = window.jspdf;
+  const doc  = new jsPDF();
+  const ccy  = rep.currency;
+  const navy = [33,55,65], orange=[255,96,59], cream=[247,244,231];
+
+  doc.setFillColor(...navy);  doc.rect(0,0,210,26,'F');
+  doc.setFillColor(...orange); doc.rect(0,26,210,1.5,'F');
+  doc.setTextColor(...cream);
+  doc.setFont('helvetica','bold');   doc.setFontSize(12); doc.text('BUREAU',14,10);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8);  doc.text('COMMISSION STATEMENT',14,18); doc.text(month,196,18,{align:'right'});
+
+  doc.setTextColor(...navy);
+  doc.setFont('helvetica','bold');   doc.setFontSize(20); doc.text(rep.rep_name,14,44);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);  doc.setTextColor(100,100,100);
+  doc.text(`${rep.level} · ${rep.region} · ${ccy}`,14,52);
+
+  const boxes = [
+    {l:'Commission',   v:fmt(rep.commission,ccy)},
+    ...(isQ&&rep.q_bonus>0?[{l:'Quarterly Bonus',v:fmt(rep.q_bonus,ccy),ac:true}]:[]),
+    {l:'Total Payout', v:fmt(rep.total,ccy), dk:true},
+  ];
+  const bw=180/boxes.length-3; let x=14;
+  boxes.forEach(b=>{
+    if(b.dk) doc.setFillColor(...navy); else if(b.ac) doc.setFillColor(255,240,235); else doc.setFillColor(...cream);
+    doc.rect(x,60,bw,22,'F');
+    doc.setFontSize(7); doc.setTextColor(b.dk?140:100,b.dk?140:100,b.dk?140:100);
+    doc.text(b.l.toUpperCase(),x+4,68);
+    doc.setFont('helvetica','bold'); doc.setFontSize(12);
+    doc.setTextColor(b.dk?247:(b.ac?255:33),b.dk?244:(b.ac?96:55),b.dk?231:(b.ac?59:65));
+    doc.text(b.v,x+4,78); doc.setFont('helvetica','normal'); x+=bw+3;
+  });
+
+  if (rep.deals?.length) {
+    doc.autoTable({
+      startY:92,
+      head:[['Deal','Date','Cash Landed','Booth Payable','Rate','Commission','Quarter']],
+      body:rep.deals.map(d=>[d.deal_name,d.payment_date,fmt(d.cash_landed,ccy),fmt(d.booth_payable,ccy),`${(d.comm_rate*100).toFixed(1)}%`,fmt(d.commission,ccy),d.close_quarter||'']),
+      styles:{fontSize:8,cellPadding:4},
+      headStyles:{fillColor:navy,textColor:cream,fontStyle:'bold',fontSize:7},
+      alternateRowStyles:{fillColor:[248,246,240]},
+      columnStyles:{2:{halign:'right'},3:{halign:'right'},4:{halign:'right'},5:{halign:'right'}},
+      margin:{left:14,right:14},
+    });
+  }
+  const ph=doc.internal.pageSize.height;
+  doc.setFillColor(...navy); doc.rect(0,ph-12,210,12,'F');
+  doc.setFontSize(7); doc.setTextColor(...cream);
+  doc.text('Bureau Booths · Confidential · '+new Date().toLocaleDateString('en-GB'),14,ph-4);
+  return doc.output('arraybuffer');
+}
+
+/* ─ import ──────────────────────────────────────────────────────────────── */
+function handleFile(key, input) {
+  if (!input.files.length) return;
+  const file = input.files[0];
+  fileStore[key] = file;
+  document.getElementById(`fname-${key}`).textContent = file.name;
+  document.getElementById(`box-${key}`).classList.add('loaded');
+  document.getElementById(`btn-${key}`).disabled = false;
+}
+
+async function importSource(key) {
+  const file = fileStore[key];
+  if (!file) return;
+  const btn  = document.getElementById(`btn-${key}`);
+  const orig = btn.textContent;
+  btn.innerHTML = '<span class="spin"></span>';
+  btn.disabled  = true;
+  try {
+    let res;
+    if (key==='hs') {
+      res = await apiPost({action:'import_hubspot', data:await parseHubSpot(file)});
+    } else if (key==='qb-us'||key==='qb-ca') {
+      const {invoices,payments} = await parseQB(file);
+      res = await apiPost({action:'import_qb', invoices, payments, source:key==='qb-us'?'QB_US':'QB_CA'});
+    } else {
+      res = await apiPost({action:'import_xero', records:await parseXero(file), source:key==='xero-uk'?'XERO_UK':'XERO_AU'});
+    }
+    if (res.ok) toast(`Imported ${res.imported||res.invoices||0} records`);
+    else toast('Error: '+res.error);
+  } catch(e) { toast('Parse error: '+e.message); }
+  btn.textContent = orig;
+  btn.disabled    = false;
+}
+
+async function calculate() {
+  const btn = document.getElementById('btn-calc');
+  btn.innerHTML = '<span class="spin"></span> Calculating…';
+  btn.disabled  = true;
+  const res = await apiPost({action:'calculate'});
+  btn.textContent = 'Calculate';
+  btn.disabled    = false;
+  if (res.ok) {
+    document.getElementById('calc-result').textContent = `${res.lines} commission lines · ${res.attainment} reps`;
+    toast('Commission calculated');
+    initMonths();
+  } else {
+    toast('Error: '+res.error);
+  }
+}
+
+/* ─ parsers ─────────────────────────────────────────────────────────────── */
+const parseCSV = file => new Promise((res,rej) => Papa.parse(file,{skipEmptyLines:false,complete:r=>res(r.data),error:rej}));
+
+async function parseHubSpot(file) {
+  const rows = await parseCSV(file);
+  if (rows.length<2) return [];
+  const h   = rows[0].map(v=>String(v).trim().toLowerCase());
+  const fc  = kws => { for(const k of kws){const i=h.findIndex(v=>v.includes(k));if(i>=0)return i;}return -1;};
+  const [id_c,nm_c,ow_c,cy_c,cl_c,ch_c,bt_c,it_c,pd_c,ov_c,st_c,pdt_c,in_c] = [
+    fc(['record id','deal id']),fc(['deal name']),fc(['deal owner','owner']),
+    fc(['currency']),fc(['close date']),fc(['channel','sales channel']),
+    fc(['booth items revenue','booth items','booth item']),fc(['invoice total']),
+    fc(['paid total','is_paidtotal']),fc(['overdue']),fc(['invoice status']),
+    fc(['latest invoice paid','is_latest_paid_date']),fc(['invoice number','is_invoicenumbers']),
+  ];
+  const out=[];
+  for(let i=1;i<rows.length;i++){
+    const r=rows[i], g=c=>c>=0?clr(r[c]):null, hid=g(id_c);
+    if(!hid) continue;
+    const cd=g(cl_c), it=cflt(g(it_c)), ov=cflt(g(ov_c)), bt=cflt(g(bt_c));
+    let pd=cflt(g(pd_c)); if(!pd&&it&&ov!=null) pd=it-ov;
+    out.push({
+      hubspot_id:hid, deal_name:g(nm_c)||'', owner:g(ow_c)||'', currency:g(cy_c)||'USD',
+      close_date:cd?new Date(cd).toISOString().slice(0,10):null, close_quarter:cd?qOf(cd):'',
+      sales_channel:g(ch_c)||'', booth_items_revenue:bt, invoice_total:it, paid_total:pd,
+      invoice_status:g(st_c)||'', paid_date:g(pdt_c)||'', invoice_numbers:g(in_c)||'',
+      booth_missing:(!bt||bt===0)&&(pd>0||it>0),
+    });
+  }
+  return out;
+}
+
+async function parseQB(file) {
+  const rows=await parseCSV(file);
+  const invoices=[], payments=[];
+  let customer=null;
+  for(let i=4;i<rows.length;i++){
+    const r=rows[i];
+    if(!r?.some(v=>v&&String(v).trim())) continue;
+    const col0=cln(r[0]), date=cln(r[1]), type=cln(r[2]).toLowerCase(), invNo=cln(r[4]), amount=cflt(r[5]);
+    if(col0&&!date){customer=col0;continue;}
+    if(!customer) continue;
+    const fd=date?(()=>{try{return new Date(date).toISOString().slice(0,10);}catch{return date;}})():null;
+    if(type==='invoice'&&invNo) invoices.push({invoice_number:invNo,customer_name:customer,invoice_date:fd,gross_amount:amount});
+    else if((type==='payment'||type==='deposit')&&invNo){
+      const nums=invNo.split(',').map(s=>s.trim()).filter(Boolean);
+      if(nums.length) payments.push({invoice_numbers:nums,payment_date:fd,amount:Math.abs(amount)});
+    }
+  }
+  return {invoices,payments};
+}
+
+async function parseXero(file) {
+  const rows=await parseCSV(file);
+  if(rows.length<6) throw new Error('Xero file too short');
+  const h=rows[4].map(v=>String(v).trim().toLowerCase());
+  const gc=kws=>{for(const k of kws){const i=h.findIndex(v=>v.includes(k));if(i>=0)return i;}return -1;};
+  const [ic,cc,dc,pc,grc,bc,sc]=[gc(['invoice number','invoice no']),gc(['contact']),gc(['invoice date']),
+    gc(['last payment date','last paid date']),gc(['gross (source)','gross']),gc(['balance (source)','balance']),gc(['status'])];
+  const out=[];
+  for(let i=5;i<rows.length;i++){
+    const r=rows[i], inv=ic>=0?cln(r[ic]):'';
+    if(!inv||['total',''].includes(inv.toLowerCase())) continue;
+    const td=v=>{const s=String(v||'').trim();if(!s||['-','nan'].includes(s.toLowerCase()))return null;try{return new Date(s).toISOString().slice(0,10);}catch{return null;}};
+    const gross=cflt(grc>=0?r[grc]:0), is_cn=inv.toUpperCase().startsWith('CN-');
+    out.push({invoice_number:inv,customer_name:cc>=0?cln(r[cc]):'',invoice_date:td(dc>=0?r[dc]:null),
+      paid_date:td(pc>=0?r[pc]:null),gross_amount:is_cn&&gross>0?-gross:gross,
+      balance:cflt(bc>=0?r[bc]:gross),status:sc>=0?cln(r[sc]):'',is_credit_note:is_cn});
+  }
+  return out;
+}
+
+/* ─ admin ───────────────────────────────────────────────────────────────── */
+async function loadUnlinked() {
+  const c=document.getElementById('unlinked-container');
+  c.innerHTML='<div class="empty">Loading…</div>';
+  const [ur,dr]=await Promise.all([apiGet('unlinked'),apiGet('deals')]);
+  dealsCache=dr.ok?dr.data:[];
+  if(!ur.ok){c.innerHTML='Error: '+ur.error;return;}
+  if(!ur.data.length){c.innerHTML='<div class="alert alert-ok">All paid invoices are linked to deals.</div>';return;}
+  c.innerHTML=`<div class="alert alert-i" style="margin-bottom:14px">${ur.data.length} invoice${ur.data.length>1?'s':''} need linking</div>
+  <table>
+    <thead><tr><th>Invoice</th><th>Customer</th><th>Source</th><th>Date</th><th class="r">Amount</th><th>Link to Deal</th></tr></thead>
+    <tbody>
+    ${ur.data.map(inv=>`<tr id="inv-${inv.invoice_number}">
+      <td><strong style="font-size:12px">${inv.invoice_number}</strong></td>
+      <td style="font-size:12px">${inv.customer_name||''}</td>
+      <td style="font-size:11px;color:var(--muted)">${inv.source||''}</td>
+      <td style="font-size:11px">${inv.invoice_date||''}</td>
+      <td class="r mono" style="font-size:12px">${fmt(inv.gross_amount,'USD')}</td>
+      <td>
+        <div style="display:flex;gap:6px;align-items:center;min-width:320px">
+          <input type="text" placeholder="Search deals…" class="s-input"
+            style="margin:0;flex:1;font-size:11px;padding:5px 8px"
+            oninput="searchDeals(this,'${inv.invoice_number}')">
+          <select id="dsel-${inv.invoice_number}"
+            style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg)">
+            <option value="">-- select --</option>
+          </select>
+          <button class="btn btn-navy" style="font-size:10px;padding:6px 12px"
+            onclick="linkInvoice('${inv.invoice_number}')">Link</button>
+        </div>
+      </td>
+    </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+function searchDeals(input, invNum) {
+  const q=input.value.toLowerCase(), sel=document.getElementById(`dsel-${invNum}`);
+  sel.innerHTML='<option value="">-- select --</option>';
+  if(q.length<2||!dealsCache) return;
+  dealsCache.filter(d=>(d.deal_name||'').toLowerCase().includes(q)||(d.owner||'').toLowerCase().includes(q))
+    .slice(0,30).forEach(d=>{const o=document.createElement('option');o.value=d.hubspot_id;o.textContent=`${d.deal_name} — ${d.owner} — ${d.close_date||''}`;sel.appendChild(o);});
+}
+
+async function linkInvoice(n) {
+  const hid=document.getElementById(`dsel-${n}`)?.value;
+  if(!hid){toast('Select a deal first');return;}
+  const res=await apiPost({action:'link_invoice',invoice_number:n,hubspot_id:hid});
+  if(res.ok){const row=document.getElementById(`inv-${n}`);if(row){row.style.opacity='.3';row.style.pointerEvents='none';}toast('Linked '+n);}
+  else toast('Error: '+res.error);
+}
+
+async function loadMissing() {
+  const c=document.getElementById('missing-container');
+  c.innerHTML='<div class="empty">Loading…</div>';
+  const res=await apiGet('missing');
+  if(!res.ok||!res.data?.length){c.innerHTML='<div class="alert alert-ok">No deals with missing booth items.</div>';return;}
+  c.innerHTML=`<div class="alert alert-w" style="margin-bottom:14px">${res.data.length} deals excluded from commission</div>
+  <table>
+    <thead><tr><th>Rep</th><th>Deal</th><th>Currency</th><th class="r">Invoice Total</th><th>HubSpot</th></tr></thead>
+    <tbody>
+    ${res.data.map(d=>`<tr>
+      <td style="font-size:12px">${d.owner||''}</td>
+      <td style="font-size:12px">${d.deal_name||''}</td>
+      <td style="font-size:11px;color:var(--muted)">${d.currency||''}</td>
+      <td class="r mono" style="font-size:12px">${fmt(d.invoice_total,d.currency)}</td>
+      <td><a class="hs-link" href="https://app.hubspot.com/contacts/${PORTAL}/deal/${d.hubspot_id}" target="_blank">Open &#8594;</a></td>
+    </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+async function loadHistory() {
+  const c=document.getElementById('history-container');
+  c.innerHTML='<div class="empty">Loading…</div>';
+  const res=await apiGet('history');
+  if(!res.ok||!res.data?.length){c.innerHTML='<div class="empty">No payout history yet</div>';return;}
+  c.innerHTML=`<table>
+    <thead><tr><th>Rep</th><th>Period</th><th>Currency</th><th class="r">Amount Paid</th><th>Notes</th></tr></thead>
+    <tbody>
+    ${res.data.map(p=>`<tr>
+      <td style="font-size:12px">${p.rep_name}</td>
+      <td style="font-size:11px">${p.period}</td>
+      <td style="font-size:11px;color:var(--muted)">${p.currency}</td>
+      <td class="r mono" style="font-size:12px">${fmt(p.amount,p.currency)}</td>
+      <td style="font-size:11px;color:var(--muted)">${p.notes||''}</td>
+    </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+/* ─ init ─────────────────────────────────────────────────────────────────── */
+initMonths();
+</script>
+</body>
+</html>
