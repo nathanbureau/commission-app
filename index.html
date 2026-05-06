@@ -413,8 +413,11 @@ td.mono { font-variant-numeric:tabular-nums; }
     <button class="btn btn-navy" onclick="downloadReports()" id="btn-reports">Download Reports</button>
   </div>
   <div class="row">
-    <span class="lbl">Period</span>
-    <select id="month-sel" onchange="loadPayout()"><option>Loading…</option></select>
+    <span class="lbl">From</span>
+    <input type="date" id="date-from" style="font-family:var(--sg);font-size:13px;border:1px solid var(--border);border-radius:4px;padding:7px 10px;background:var(--bg);color:var(--text);">
+    <span class="lbl">To</span>
+    <input type="date" id="date-to" style="font-family:var(--sg);font-size:13px;border:1px solid var(--border);border-radius:4px;padding:7px 10px;background:var(--bg);color:var(--text);">
+    <button class="btn btn-navy" onclick="loadPayout()" style="padding:7px 20px">Load</button>
     <span id="q-badge" style="display:none" class="badge"></span>
   </div>
   <div id="metrics-row" class="metrics" style="display:none"></div>
@@ -441,7 +444,7 @@ td.mono { font-variant-numeric:tabular-nums; }
   <div class="sec-lbl">HubSpot</div>
   <div class="ucard" id="box-hs" onclick="document.getElementById('file-hs').click()" style="margin-bottom:24px">
     <div class="uc-name">HubSpot Deals</div>
-    <div class="uc-sub">Commission Calculator Data report — all regions, all columns</div>
+    <div class="uc-sub">Commission Calculator Data report, all regions, all columns</div>
     <div class="uc-file" id="fname-hs">Click to upload CSV</div>
     <div class="uc-acts">
       <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-hs" disabled
@@ -454,7 +457,7 @@ td.mono { font-variant-numeric:tabular-nums; }
   <div class="ugrid">
     <div class="ucard" id="box-qb-us" onclick="document.getElementById('file-qb-us').click()">
       <div class="uc-name">QB United States</div>
-      <div class="uc-sub">Inbox Booths LLC — Invoices and Received Payments</div>
+      <div class="uc-sub">Inbox Booths LLC, Invoices and Received Payments</div>
       <div class="uc-file" id="fname-qb-us">Click to upload CSV</div>
       <div class="uc-acts">
         <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-qb-us" disabled
@@ -463,7 +466,7 @@ td.mono { font-variant-numeric:tabular-nums; }
     </div>
     <div class="ucard" id="box-qb-ca" onclick="document.getElementById('file-qb-ca').click()">
       <div class="uc-name">QB Canada</div>
-      <div class="uc-sub">Inbox Design Inc. — Invoices and Received Payments</div>
+      <div class="uc-sub">Inbox Design Inc., Invoices and Received Payments</div>
       <div class="uc-file" id="fname-qb-ca">Click to upload CSV</div>
       <div class="uc-acts">
         <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-qb-ca" disabled
@@ -478,7 +481,7 @@ td.mono { font-variant-numeric:tabular-nums; }
   <div class="ugrid">
     <div class="ucard" id="box-xero-uk" onclick="document.getElementById('file-xero-uk').click()">
       <div class="uc-name">Xero UK</div>
-      <div class="uc-sub">Bureau Booths UK Limited — Receivable Invoice Summary</div>
+      <div class="uc-sub">Bureau Booths UK Limited, Receivable Invoice Summary</div>
       <div class="uc-file" id="fname-xero-uk">Click to upload CSV or XLSX</div>
       <div class="uc-acts">
         <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-xero-uk" disabled
@@ -487,7 +490,7 @@ td.mono { font-variant-numeric:tabular-nums; }
     </div>
     <div class="ucard" id="box-xero-au" onclick="document.getElementById('file-xero-au').click()">
       <div class="uc-name">Xero AUS</div>
-      <div class="uc-sub">Bureau Booths Pty Limited — must include Last Payment Date</div>
+      <div class="uc-sub">Bureau Booths Pty Limited, must include Last Payment Date</div>
       <div class="uc-file" id="fname-xero-au">Click to upload CSV or XLSX</div>
       <div class="uc-acts">
         <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-xero-au" disabled
@@ -592,47 +595,66 @@ function nav(id, btn) {
 /* ─ state ───────────────────────────────────────────────────────────────── */
 let payoutData   = [];
 let activeRegion = null;
+let rangeKey     = '';
 let fileStore    = {};
 let dealsCache   = null;
 
-/* ─ months ──────────────────────────────────────────────────────────────── */
-async function initMonths() {
-  const res = await apiGet('months');
-  const sel = document.getElementById('month-sel');
-  sel.innerHTML = '';
-  if (res.ok && res.data?.length) {
-    res.data.forEach(m => { const o=document.createElement('option'); o.value=o.textContent=m; sel.appendChild(o); });
-    loadPayout();
-  } else {
-    sel.innerHTML = '<option value="">No data — import first</option>';
+/* ─ date range defaults ─────────────────────────────────────────────────── */
+function initDates() {
+  const today = new Date();
+  const y = today.getFullYear(), m = String(today.getMonth()+1).padStart(2,'0'), d = String(today.getDate()).padStart(2,'0');
+  // default: first of current month to today
+  const firstOfMonth = `${y}-${m}-01`;
+  const todayStr     = `${y}-${m}-${d}`;
+  document.getElementById('date-from').value = firstOfMonth;
+  document.getElementById('date-to').value   = todayStr;
+}
+
+/* ─ quarter detection ───────────────────────────────────────────────────── */
+const Q_ENDS = [['Q1','03-31'],['Q2','06-30'],['Q3','09-30'],['Q4','12-31']];
+function getActiveQuarters(start, end) {
+  const qs = [];
+  const sy = parseInt(start.slice(0,4)), ey = parseInt(end.slice(0,4));
+  for (let y = sy; y <= ey; y++) {
+    Q_ENDS.forEach(([q, md]) => {
+      const qdate = `${y}-${md}`;
+      if (qdate >= start && qdate <= end) qs.push({label:`${y} ${q}`});
+    });
   }
+  return qs;
 }
 
 /* ─ payout ──────────────────────────────────────────────────────────────── */
 async function loadPayout() {
-  const month = document.getElementById('month-sel').value;
-  if (!month) return;
-  const mo  = parseInt(month.slice(5,7));
-  const isQ = [3,6,9,12].includes(mo);
-  const qMap = {3:'Q1',6:'Q2',9:'Q3',12:'Q4'};
+  const start_date = document.getElementById('date-from').value;
+  const end_date   = document.getElementById('date-to').value;
+  if (!start_date || !end_date) { toast('Select a date range'); return; }
+  if (start_date > end_date) { toast('Start must be before end'); return; }
+
+  // detect quarter-end dates in range for the badge
   const badge = document.getElementById('q-badge');
-  badge.style.display = isQ ? 'inline-block' : 'none';
-  if (isQ) badge.textContent = `${month.slice(0,4)} ${qMap[mo]} Bonus`;
+  const activeQs = getActiveQuarters(start_date, end_date);
+  if (activeQs.length) {
+    badge.textContent = activeQs.map(q=>q.label+' Bonus').join(' + ');
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
 
   document.getElementById('payout-table').innerHTML = '<div class="empty">Loading…</div>';
   document.getElementById('region-tabs').innerHTML  = '';
   document.getElementById('metrics-row').style.display = 'none';
   document.getElementById('payout-warn').innerHTML  = '';
 
-  const res = await apiGet('payout', {month});
+  const res = await apiGet('payout', {start_date, end_date});
   if (!res.ok) { toast('Error: '+res.error); return; }
   payoutData = res.data;
-  renderPayout(month);
+  rangeKey = `${start_date}_${end_date}`;
+  renderPayout();
 }
 
-function renderPayout(month) {
-  const mo  = parseInt(month.slice(5,7));
-  const isQ = [3,6,9,12].includes(mo);
+function renderPayout() {
+  const isQ = payoutData.length ? payoutData[0].has_bonus : false;
   if (!payoutData.length) {
     document.getElementById('payout-table').innerHTML = '<div class="empty">No commission data for this period</div>';
     return;
@@ -657,13 +679,13 @@ function renderPayout(month) {
 
   const nb = payoutData.filter(r => r.deals?.some(d => !d.booth_payable));
   document.getElementById('payout-warn').innerHTML = nb.length
-    ? `<div class="alert alert-w" style="margin-bottom:20px">&#9888; ${nb.length} rep${nb.length>1?'s have':' has'} deals with missing Booth Items — commission may be understated.</div>`
+    ? `<div class="alert alert-w" style="margin-bottom:20px">&#9888; ${nb.length} rep${nb.length>1?'s have':' has'} deals with missing Booth Items. Commission may be understated.</div>`
     : '';
 
-  renderTable(month, isQ);
+  renderTable(isQ);
 }
 
-function renderTable(month, isQ) {
+function renderTable(isQ) {
   const data = activeRegion==='ALL' ? payoutData : payoutData.filter(r=>r.region===activeRegion);
   if (!data.length) { document.getElementById('payout-table').innerHTML='<div class="empty">No data for this region</div>'; return; }
 
@@ -691,9 +713,9 @@ function renderTable(month, isQ) {
       return `<tr>
         <td><span class="rep-n">${r.rep_name}</span><span class="rep-t">${r.level}</span>${poHtml}</td>
         <td class="r mono">${fmt(r.commission,r.currency)}</td>
-        ${isQ?`<td class="r mono ${r.q_bonus>0?'or':''}">${r.q_bonus>0?fmt(r.q_bonus,r.currency):'<span class="dim">—</span>'}</td>`:''}
+        ${isQ?`<td class="r mono ${r.q_bonus>0?'or':''}">${r.q_bonus>0?fmt(r.q_bonus,r.currency):'<span class="dim">-</span>'}</td>`:''}
         <td class="r"><strong>${fmt(r.total,r.currency)}</strong></td>
-        <td class="r mono dim">${r.already_paid>0?fmt(r.already_paid,r.currency):'<span>—</span>'}</td>
+        <td class="r mono dim">${r.already_paid>0?fmt(r.already_paid,r.currency):'<span>-</span>'}</td>
         <td class="r"><input class="paid-in" type="number" value="${payVal}" step="0.01" min="0" id="${pid}"></td>
       </tr>`;
     }).join('')}
@@ -712,12 +734,11 @@ function switchRegion(r, el) {
   activeRegion = r;
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
-  const month = document.getElementById('month-sel').value;
-  renderTable(month, [3,6,9,12].includes(parseInt(month.slice(5,7))));
+  const isQ = payoutData.length ? payoutData[0].has_bonus : false;
+  renderTable(isQ);
 }
 
 async function savePayouts() {
-  const month = document.getElementById('month-sel').value;
   const btn   = document.getElementById('btn-save');
   btn.innerHTML = '<span class="spin"></span> Saving…';
   btn.disabled  = true;
@@ -726,7 +747,7 @@ async function savePayouts() {
     amount:   parseFloat(document.getElementById('paid_'+r.rep_name.replace(/\W/g,'_'))?.value||0),
     currency: r.currency,
   }));
-  const res = await apiPost({action:'save_payouts', period:month, entries});
+  const res = await apiPost({action:'save_payouts', period:rangeKey, entries});
   btn.innerHTML = 'Mark as Paid';
   btn.disabled  = false;
   if (res.ok) {
@@ -741,15 +762,17 @@ async function savePayouts() {
 /* ─ reports ─────────────────────────────────────────────────────────────── */
 async function downloadReports() {
   if (!payoutData.length) { toast('No payout data loaded'); return; }
-  const month = document.getElementById('month-sel').value;
+  const start_date = document.getElementById('date-from').value;
+  const end_date   = document.getElementById('date-to').value;
+  const rangeLabel = `${start_date}_${end_date}`;
   const btn   = document.getElementById('btn-reports');
   btn.innerHTML = '<span class="spin"></span> Generating…';
   btn.disabled  = true;
-  const isQ = [3,6,9,12].includes(parseInt(month.slice(5,7)));
+  const isQ = payoutData.length ? payoutData[0].has_bonus : false;
   const zip = new JSZip();
-  payoutData.forEach(rep => { if (!rep.total) return; zip.file(`${rep.rep_name.replace(/\s/g,'_')}_${month}.pdf`, buildPDF(rep,month,isQ)); });
+  payoutData.forEach(rep => { if (!rep.total) return; zip.file(`${rep.rep_name.replace(/\s/g,'_')}_${rangeLabel}.pdf`, buildPDF(rep,rangeLabel,isQ)); });
   const blob = await zip.generateAsync({type:'blob'});
-  Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob), download:`commission_${month}.zip`}).click();
+  Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob), download:`commission_${rangeLabel}.zip`}).click();
   btn.innerHTML = 'Download Reports';
   btn.disabled  = false;
   toast('Reports downloaded');
@@ -852,7 +875,7 @@ async function calculate() {
   if (res.ok) {
     document.getElementById('calc-result').textContent = `${res.lines} commission lines · ${res.attainment} reps`;
     toast('Commission calculated');
-    initMonths();
+    // date range stays as-is after calculate
   } else {
     toast('Error: '+res.error);
   }
@@ -902,15 +925,20 @@ async function parseQB(file) {
     const col0=cln(r[0]), date=cln(r[1]), type=cln(r[2]).toLowerCase(), invNo=cln(r[4]), amount=cflt(r[5]);
     if(col0&&!date){customer=col0;continue;}
     if(!customer) continue;
-    // handle both YYYY-MM-DD (QB US) and DD/MM/YYYY (QB CA) date formats
+    // parse QB dates -- handles DD/MM/YYYY (CA), YYYY-MM-DD (US),
+    // and "Wednesday, September 10, 2025 08:53 AM" footer timestamps from QB
     const fd=date?(()=>{
       try{
         const s=String(date).trim();
+        // dd/mm/yyyy
         const dmy=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-        const iso=dmy?`${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`:s;
-        const d=new Date(iso);
-        return isNaN(d)?s:d.toISOString().slice(0,10);
-      }catch{return date;}
+        if(dmy) return `${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`;
+        // strip leading day name e.g. "Wednesday, September 10, 2025 08:53 AM GMT..."
+        const stripped=s.replace(/^[A-Za-z]+,?\s*/,'');
+        const d=new Date(stripped||s);
+        if(isNaN(d)) return null;
+        return d.toISOString().slice(0,10);
+      }catch{return null;}
     })():null;
     if(type==='invoice'&&invNo) invoices.push({invoice_number:invNo,customer_name:customer,invoice_date:fd,gross_amount:amount});
     else if((type==='payment'||type==='deposit')&&invNo){
@@ -982,7 +1010,7 @@ function searchDeals(input, invNum) {
   sel.innerHTML='<option value="">-- select --</option>';
   if(q.length<2||!dealsCache) return;
   dealsCache.filter(d=>(d.deal_name||'').toLowerCase().includes(q)||(d.owner||'').toLowerCase().includes(q))
-    .slice(0,30).forEach(d=>{const o=document.createElement('option');o.value=d.hubspot_id;o.textContent=`${d.deal_name} — ${d.owner} — ${d.close_date||''}`;sel.appendChild(o);});
+    .slice(0,30).forEach(d=>{const o=document.createElement('option');o.value=d.hubspot_id;o.textContent=`${d.deal_name} | ${d.owner} | ${d.close_date||''}`;sel.appendChild(o);});
 }
 
 async function linkInvoice(n) {
@@ -1033,7 +1061,7 @@ async function loadHistory() {
 }
 
 /* ─ init ─────────────────────────────────────────────────────────────────── */
-initMonths();
+initDates();
 </script>
 </body>
 </html>
