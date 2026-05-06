@@ -204,6 +204,13 @@ td.mono { font-variant-numeric:tabular-nums; }
   text-transform:uppercase;
   vertical-align:middle;
 }
+.rep-po {
+  display:block;
+  font-size:10px;
+  color:var(--muted);
+  margin-top:3px;
+  font-weight:400;
+}
 .or { color:var(--orange); }
 .dim { color:var(--muted); }
 .paid-in {
@@ -434,7 +441,7 @@ td.mono { font-variant-numeric:tabular-nums; }
   <div class="sec-lbl">HubSpot</div>
   <div class="ucard" id="box-hs" onclick="document.getElementById('file-hs').click()" style="margin-bottom:24px">
     <div class="uc-name">HubSpot Deals</div>
-    <div class="uc-sub">Full deals export — all regions, all columns</div>
+    <div class="uc-sub">Commission Calculator Data report — all regions, all columns</div>
     <div class="uc-file" id="fname-hs">Click to upload CSV</div>
     <div class="uc-acts">
       <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-hs" disabled
@@ -583,10 +590,10 @@ function nav(id, btn) {
 }
 
 /* ─ state ───────────────────────────────────────────────────────────────── */
-let payoutData  = [];
+let payoutData   = [];
 let activeRegion = null;
-let fileStore   = {};
-let dealsCache  = null;
+let fileStore    = {};
+let dealsCache   = null;
 
 /* ─ months ──────────────────────────────────────────────────────────────── */
 async function initMonths() {
@@ -605,7 +612,7 @@ async function initMonths() {
 async function loadPayout() {
   const month = document.getElementById('month-sel').value;
   if (!month) return;
-  const mo = parseInt(month.slice(5,7));
+  const mo  = parseInt(month.slice(5,7));
   const isQ = [3,6,9,12].includes(mo);
   const qMap = {3:'Q1',6:'Q2',9:'Q3',12:'Q4'};
   const badge = document.getElementById('q-badge');
@@ -613,9 +620,9 @@ async function loadPayout() {
   if (isQ) badge.textContent = `${month.slice(0,4)} ${qMap[mo]} Bonus`;
 
   document.getElementById('payout-table').innerHTML = '<div class="empty">Loading…</div>';
-  document.getElementById('region-tabs').innerHTML = '';
+  document.getElementById('region-tabs').innerHTML  = '';
   document.getElementById('metrics-row').style.display = 'none';
-  document.getElementById('payout-warn').innerHTML = '';
+  document.getElementById('payout-warn').innerHTML  = '';
 
   const res = await apiGet('payout', {month});
   if (!res.ok) { toast('Error: '+res.error); return; }
@@ -624,7 +631,7 @@ async function loadPayout() {
 }
 
 function renderPayout(month) {
-  const mo = parseInt(month.slice(5,7));
+  const mo  = parseInt(month.slice(5,7));
   const isQ = [3,6,9,12].includes(mo);
   if (!payoutData.length) {
     document.getElementById('payout-table').innerHTML = '<div class="empty">No commission data for this period</div>';
@@ -678,8 +685,11 @@ function renderTable(month, isQ) {
     ${data.map(r => {
       const pid = 'paid_'+r.rep_name.replace(/\W/g,'_');
       const payVal = (r.already_paid>0 ? r.already_paid : r.total).toFixed(2);
+      // collect unique non-empty partnership owners across this rep's deals
+      const pos = [...new Set((r.deals||[]).map(d=>d.partnership_owner).filter(Boolean))];
+      const poHtml = pos.length ? `<span class="rep-po">via ${pos.join(', ')}</span>` : '';
       return `<tr>
-        <td><span class="rep-n">${r.rep_name}</span><span class="rep-t">${r.level}</span></td>
+        <td><span class="rep-n">${r.rep_name}</span><span class="rep-t">${r.level}</span>${poHtml}</td>
         <td class="r mono">${fmt(r.commission,r.currency)}</td>
         ${isQ?`<td class="r mono ${r.q_bonus>0?'or':''}">${r.q_bonus>0?fmt(r.q_bonus,r.currency):'<span class="dim">—</span>'}</td>`:''}
         <td class="r"><strong>${fmt(r.total,r.currency)}</strong></td>
@@ -751,11 +761,12 @@ function buildPDF(rep, month, isQ) {
   const ccy  = rep.currency;
   const navy = [33,55,65], orange=[255,96,59], cream=[247,244,231];
 
-  doc.setFillColor(...navy);  doc.rect(0,0,210,26,'F');
+  doc.setFillColor(...navy);   doc.rect(0,0,210,26,'F');
   doc.setFillColor(...orange); doc.rect(0,26,210,1.5,'F');
   doc.setTextColor(...cream);
   doc.setFont('helvetica','bold');   doc.setFontSize(12); doc.text('BUREAU',14,10);
-  doc.setFont('helvetica','normal'); doc.setFontSize(8);  doc.text('COMMISSION STATEMENT',14,18); doc.text(month,196,18,{align:'right'});
+  doc.setFont('helvetica','normal'); doc.setFontSize(8);
+  doc.text('COMMISSION STATEMENT',14,18); doc.text(month,196,18,{align:'right'});
 
   doc.setTextColor(...navy);
   doc.setFont('helvetica','bold');   doc.setFontSize(20); doc.text(rep.rep_name,14,44);
@@ -855,12 +866,13 @@ async function parseHubSpot(file) {
   if (rows.length<2) return [];
   const h   = rows[0].map(v=>String(v).trim().toLowerCase());
   const fc  = kws => { for(const k of kws){const i=h.findIndex(v=>v.includes(k));if(i>=0)return i;}return -1;};
-  const [id_c,nm_c,ow_c,cy_c,cl_c,ch_c,bt_c,it_c,pd_c,ov_c,st_c,pdt_c,in_c] = [
+  const [id_c,nm_c,ow_c,cy_c,cl_c,ch_c,bt_c,it_c,pd_c,ov_c,st_c,pdt_c,in_c,po_c] = [
     fc(['record id','deal id']),fc(['deal name']),fc(['deal owner','owner']),
     fc(['currency']),fc(['close date']),fc(['channel','sales channel']),
     fc(['booth items revenue','booth items','booth item']),fc(['invoice total']),
     fc(['paid total','is_paidtotal']),fc(['overdue']),fc(['invoice status']),
     fc(['latest invoice paid','is_latest_paid_date']),fc(['invoice number','is_invoicenumbers']),
+    fc(['partnership owner']),  // display-only, no effect on commission
   ];
   const out=[];
   for(let i=1;i<rows.length;i++){
@@ -874,6 +886,7 @@ async function parseHubSpot(file) {
       sales_channel:g(ch_c)||'', booth_items_revenue:bt, invoice_total:it, paid_total:pd,
       invoice_status:g(st_c)||'', paid_date:g(pdt_c)||'', invoice_numbers:g(in_c)||'',
       booth_missing:(!bt||bt===0)&&(pd>0||it>0),
+      partnership_owner:g(po_c)||'',  // stored for display, not used in calculation
     });
   }
   return out;
@@ -889,7 +902,16 @@ async function parseQB(file) {
     const col0=cln(r[0]), date=cln(r[1]), type=cln(r[2]).toLowerCase(), invNo=cln(r[4]), amount=cflt(r[5]);
     if(col0&&!date){customer=col0;continue;}
     if(!customer) continue;
-    const fd=date?(()=>{try{return new Date(date).toISOString().slice(0,10);}catch{return date;}})():null;
+    // handle both YYYY-MM-DD (QB US) and DD/MM/YYYY (QB CA) date formats
+    const fd=date?(()=>{
+      try{
+        const s=String(date).trim();
+        const dmy=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        const iso=dmy?`${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`:s;
+        const d=new Date(iso);
+        return isNaN(d)?s:d.toISOString().slice(0,10);
+      }catch{return date;}
+    })():null;
     if(type==='invoice'&&invNo) invoices.push({invoice_number:invNo,customer_name:customer,invoice_date:fd,gross_amount:amount});
     else if((type==='payment'||type==='deposit')&&invNo){
       const nums=invNo.split(',').map(s=>s.trim()).filter(Boolean);
