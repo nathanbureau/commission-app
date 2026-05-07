@@ -892,7 +892,7 @@ async function parseHubSpot(file) {
   const [id_c,nm_c,ow_c,cy_c,cl_c,ch_c,bt_c,it_c,pd_c,ov_c,st_c,pdt_c,in_c,po_c] = [
     fc(['record id','deal id']),fc(['deal name']),fc(['deal owner','owner']),
     fc(['currency']),fc(['close date']),fc(['channel','sales channel']),
-    fc(['booth items revenue','booth items','booth item']),fc(['invoice total']),
+    fc(['booths items','booth items revenue','booth items','booth item']),fc(['invoice total']),
     fc(['paid total','is_paidtotal']),fc(['overdue']),fc(['invoice status']),
     fc(['latest invoice paid','is_latest_paid_date']),fc(['invoice number','is_invoicenumbers']),
     fc(['partnership owner']),  // display-only, no effect on commission
