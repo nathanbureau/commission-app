@@ -898,6 +898,9 @@ async function parseHubSpot(file) {
     fc(['latest invoice paid','is_latest_paid_date']),fc(['invoice number','is_invoicenumbers']),
     fc(['partnership owner']),  // display-only, no effect on commission
   ];
+  // debug: confirm column indices and sample booth value
+  console.log('[HS parse] bt_c='+bt_c+' pd_c='+pd_c+' in_c='+in_c);
+  if(rows.length>1){const s=rows[1];console.log('[HS parse] sample booth raw='+JSON.stringify(s[bt_c])+' parsed='+cflt(s[bt_c]));}
   const out=[];
   for(let i=1;i<rows.length;i++){
     const r=rows[i], g=c=>c>=0?clr(r[c]):null, hid=g(id_c);
