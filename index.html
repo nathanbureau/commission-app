@@ -752,7 +752,7 @@ async function savePayouts() {
   btn.innerHTML = 'Mark as Paid';
   btn.disabled  = false;
   if (res.ok) {
-    toast('Payouts saved for '+month);
+    toast('Payouts saved');
     document.getElementById('save-note').textContent = 'Saved '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
     loadPayout();
   } else {
@@ -876,7 +876,6 @@ async function calculate() {
   if (res.ok) {
     document.getElementById('calc-result').textContent = `${res.lines} commission lines · ${res.attainment} reps`;
     toast('Commission calculated');
-    // date range stays as-is after calculate
   } else {
     toast('Error: '+res.error);
   }
@@ -893,14 +892,17 @@ async function parseHubSpot(file) {
   const [id_c,nm_c,ow_c,cy_c,cl_c,ch_c,bt_c,it_c,pd_c,ov_c,st_c,pdt_c,in_c,po_c] = [
     fc(['record id','deal id']),fc(['deal name']),fc(['deal owner','owner']),
     fc(['currency']),fc(['close date']),fc(['channel','sales channel']),
-    fc(['booths items','booth items revenue','booth items','booth item']),fc(['invoice total']),
+    // most specific first to avoid sibling "Booths Items ..." columns winning the lookup
+    fc(['booths items total revenue','booth items total revenue','booths items revenue','booth items revenue','booths item','booth items','booth item']),
+    fc(['invoice total']),
     fc(['paid total','is_paidtotal']),fc(['overdue']),fc(['invoice status']),
     fc(['latest invoice paid','is_latest_paid_date']),fc(['invoice number','is_invoicenumbers']),
-    fc(['partnership owner']),  // display-only, no effect on commission
+    fc(['partnership owner']),
   ];
-  // debug: confirm column indices and sample booth value
-  console.log('[HS parse] bt_c='+bt_c+' pd_c='+pd_c+' in_c='+in_c);
-  if(rows.length>1){const s=rows[1];console.log('[HS parse] sample booth raw='+JSON.stringify(s[bt_c])+' parsed='+cflt(s[bt_c]));}
+  // diagnostic: full header list plus which column the booth lookup landed on
+  console.log('[HS parse] headers:', h);
+  console.log('[HS parse] bt_c='+bt_c+' col='+(bt_c>=0?h[bt_c]:'NOT FOUND')+' it_c='+it_c+' pd_c='+pd_c);
+  if(rows.length>1){const s=rows[1];console.log('[HS parse] sample row booth raw='+JSON.stringify(s[bt_c])+' parsed='+cflt(s[bt_c]));}
   const out=[];
   for(let i=1;i<rows.length;i++){
     const r=rows[i], g=c=>c>=0?clr(r[c]):null, hid=g(id_c);
@@ -916,6 +918,9 @@ async function parseHubSpot(file) {
       partnership_owner:g(po_c)||'',  // stored for display, not used in calculation
     });
   }
+  // summary: how many of the rows ended up with a non-zero booth value
+  const nz = out.filter(d=>d.booth_items_revenue>0).length;
+  console.log('[HS parse] '+nz+'/'+out.length+' rows have non-zero booth_items_revenue');
   return out;
 }
 
@@ -929,7 +934,7 @@ async function parseQB(file) {
     const col0=cln(r[0]), date=cln(r[1]), type=cln(r[2]).toLowerCase(), invNo=cln(r[4]), amount=cflt(r[5]);
     if(col0&&!date){customer=col0;continue;}
     if(!customer) continue;
-    // parse QB dates -- handles DD/MM/YYYY (CA), YYYY-MM-DD (US),
+    // parse QB dates: handles DD/MM/YYYY (CA), YYYY-MM-DD (US),
     // and "Wednesday, September 10, 2025 08:53 AM" footer timestamps from QB
     const fd=date?(()=>{
       try{
