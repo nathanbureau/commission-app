@@ -555,7 +555,7 @@ td.mono { font-variant-numeric:tabular-nums; }
 <script>
 'use strict';
 
-const API    = 'https://script.google.com/macros/s/AKfycbwQZM0A4pZCo-S4GdYylk__y4LSWb7bH0S8dBE7SsV_rxKC6oE21VgAv138Eo3Zy8QI/exec';
+const API    = 'https://script.google.com/macros/s/AKfycbzmBpoX9YCMOg9ZPNUd_4Mc3rhmZ4mrqLcCpc--n4PgoudvsRIO1uluKp99TkDXmPWI/exec';
 const PORTAL = 44093193;
 
 /* ─ utils ──────────────────────────────────────────────────────────────── */
@@ -854,8 +854,9 @@ async function importSource(key) {
     if (key==='hs') {
       res = await apiPost({action:'import_hubspot', data:await parseHubSpot(file)});
     } else if (key==='qb-us'||key==='qb-ca') {
-      const {invoices,payments} = await parseQB(file);
-      res = await apiPost({action:'import_qb', invoices, payments, source:key==='qb-us'?'QB_US':'QB_CA'});
+      const source = key==='qb-us' ? 'QB_US' : 'QB_CA';
+      const {invoices,payments} = await parseQB(file, source);
+      res = await apiPost({action:'import_qb', invoices, payments, source});
     } else {
       res = await apiPost({action:'import_xero', records:await parseXero(file), source:key==='xero-uk'?'XERO_UK':'XERO_AU'});
     }
@@ -918,30 +919,35 @@ async function parseHubSpot(file) {
       partnership_owner:g(po_c)||'',  // stored for display, not used in calculation
     });
   }
-  // summary: how many of the rows ended up with a non-zero booth value
+  // summary: how many rows ended up with a non-zero booth value
   const nz = out.filter(d=>d.booth_items_revenue>0).length;
   console.log('[HS parse] '+nz+'/'+out.length+' rows have non-zero booth_items_revenue');
   return out;
 }
 
-async function parseQB(file) {
+async function parseQB(file, source) {
   const rows=await parseCSV(file);
   const invoices=[], payments=[];
   let customer=null;
+  // QB_US exports MM/DD/YYYY, QB_CA exports DD/MM/YYYY
+  const usFmt = source === 'QB_US';
   for(let i=4;i<rows.length;i++){
     const r=rows[i];
     if(!r?.some(v=>v&&String(v).trim())) continue;
     const col0=cln(r[0]), date=cln(r[1]), type=cln(r[2]).toLowerCase(), invNo=cln(r[4]), amount=cflt(r[5]);
     if(col0&&!date){customer=col0;continue;}
     if(!customer) continue;
-    // parse QB dates: handles DD/MM/YYYY (CA), YYYY-MM-DD (US),
-    // and "Wednesday, September 10, 2025 08:53 AM" footer timestamps from QB
+    // parse QB dates: handles MM/DD/YYYY (US) and DD/MM/YYYY (CA) via the usFmt
+    // flag, plus YYYY-MM-DD and "Wednesday, September 10, 2025 ..." footer rows
     const fd=date?(()=>{
       try{
         const s=String(date).trim();
-        // dd/mm/yyyy
         const dmy=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-        if(dmy) return `${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`;
+        if(dmy){
+          const mo = usFmt ? dmy[1] : dmy[2];
+          const da = usFmt ? dmy[2] : dmy[1];
+          return `${dmy[3]}-${mo.padStart(2,'0')}-${da.padStart(2,'0')}`;
+        }
         // strip leading day name e.g. "Wednesday, September 10, 2025 08:53 AM GMT..."
         const stripped=s.replace(/^[A-Za-z]+,?\s*/,'');
         const d=new Date(stripped||s);
