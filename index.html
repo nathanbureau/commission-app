@@ -124,17 +124,6 @@ select {
   background-position:right 9px center;
 }
 select:focus { outline:none; border-color:var(--focus); }
-.badge {
-  font-size:10px;
-  font-weight:600;
-  letter-spacing:.1em;
-  text-transform:uppercase;
-  color:var(--orange);
-  border:1px solid rgba(255,96,59,.28);
-  background:rgba(255,96,59,.05);
-  padding:4px 10px;
-  border-radius:3px;
-}
 
 /* ─ metrics ──────────────────────────────────────────────────────────────── */
 .metrics {
@@ -409,7 +398,7 @@ td.mono { font-variant-numeric:tabular-nums; }
   <div class="ph">
     <div>
       <div class="ph-title">Monthly Payout</div>
-      <div class="ph-sub">Commission paid monthly. Quarterly bonus paid in March, June, September and December.</div>
+      <div class="ph-sub">Commission and accelerator paid monthly. Accelerator rate is set by quarterly attainment on each deal's close quarter.</div>
     </div>
     <button class="btn btn-navy" onclick="downloadReports()" id="btn-reports">Download Reports</button>
   </div>
@@ -419,7 +408,6 @@ td.mono { font-variant-numeric:tabular-nums; }
     <span class="lbl">To</span>
     <input type="date" id="date-to" style="font-family:var(--sg);font-size:13px;border:1px solid var(--border);border-radius:4px;padding:7px 10px;background:var(--bg);color:var(--text);">
     <button class="btn btn-navy" onclick="loadPayout()" style="padding:7px 20px">Load</button>
-    <span id="q-badge" style="display:none" class="badge"></span>
   </div>
   <div id="metrics-row" class="metrics" style="display:none"></div>
   <div id="payout-warn"></div>
@@ -605,24 +593,8 @@ function initDates() {
   const today = new Date();
   const y = today.getFullYear(), m = String(today.getMonth()+1).padStart(2,'0'), d = String(today.getDate()).padStart(2,'0');
   // default: first of current month to today
-  const firstOfMonth = `${y}-${m}-01`;
-  const todayStr     = `${y}-${m}-${d}`;
-  document.getElementById('date-from').value = firstOfMonth;
-  document.getElementById('date-to').value   = todayStr;
-}
-
-/* ─ quarter detection ───────────────────────────────────────────────────── */
-const Q_ENDS = [['Q1','03-31'],['Q2','06-30'],['Q3','09-30'],['Q4','12-31']];
-function getActiveQuarters(start, end) {
-  const qs = [];
-  const sy = parseInt(start.slice(0,4)), ey = parseInt(end.slice(0,4));
-  for (let y = sy; y <= ey; y++) {
-    Q_ENDS.forEach(([q, md]) => {
-      const qdate = `${y}-${md}`;
-      if (qdate >= start && qdate <= end) qs.push({label:`${y} ${q}`});
-    });
-  }
-  return qs;
+  document.getElementById('date-from').value = `${y}-${m}-01`;
+  document.getElementById('date-to').value   = `${y}-${m}-${d}`;
 }
 
 /* ─ payout ──────────────────────────────────────────────────────────────── */
@@ -631,16 +603,6 @@ async function loadPayout() {
   const end_date   = document.getElementById('date-to').value;
   if (!start_date || !end_date) { toast('Select a date range'); return; }
   if (start_date > end_date) { toast('Start must be before end'); return; }
-
-  // detect quarter-end dates in range for the badge
-  const badge = document.getElementById('q-badge');
-  const activeQs = getActiveQuarters(start_date, end_date);
-  if (activeQs.length) {
-    badge.textContent = activeQs.map(q=>q.label+' Bonus').join(' + ');
-    badge.style.display = 'inline-block';
-  } else {
-    badge.style.display = 'none';
-  }
 
   document.getElementById('payout-table').innerHTML = '<div class="empty">Loading…</div>';
   document.getElementById('region-tabs').innerHTML  = '';
@@ -655,7 +617,6 @@ async function loadPayout() {
 }
 
 function renderPayout() {
-  const isQ = payoutData.length ? payoutData[0].has_bonus : false;
   if (!payoutData.length) {
     document.getElementById('payout-table').innerHTML = '<div class="empty">No commission data for this period</div>';
     return;
@@ -668,14 +629,14 @@ function renderPayout() {
     `<div class="tab ${activeRegion==='ALL'?'active':''}" onclick="switchRegion('ALL',this)">All</div>`;
 
   const tc = payoutData.reduce((s,r)=>s+r.commission,0);
-  const tb = payoutData.reduce((s,r)=>s+(r.q_bonus||0),0);
+  const ta = payoutData.reduce((s,r)=>s+(r.accelerator||0),0);
   const tp = payoutData.reduce((s,r)=>s+r.total,0);
   const mr = document.getElementById('metrics-row');
   mr.style.display = 'grid';
   mr.innerHTML = `
     <div class="metric"><div class="metric-lbl">Reps</div><div class="metric-val">${payoutData.length}</div></div>
     <div class="metric"><div class="metric-lbl">Commission</div><div class="metric-val">${fmtK(tc,'USD')}</div></div>
-    ${isQ ? `<div class="metric"><div class="metric-lbl">Quarterly Bonus</div><div class="metric-val or">${fmtK(tb,'USD')}</div></div>` : ''}
+    <div class="metric"><div class="metric-lbl">Accelerator</div><div class="metric-val or">${fmtK(ta,'USD')}</div></div>
     <div class="metric"><div class="metric-lbl">Total Payout</div><div class="metric-val">${fmtK(tp,'USD')}</div></div>`;
 
   const nb = payoutData.filter(r => r.deals?.some(d => !d.booth_payable));
@@ -683,23 +644,23 @@ function renderPayout() {
     ? `<div class="alert alert-w" style="margin-bottom:20px">&#9888; ${nb.length} rep${nb.length>1?'s have':' has'} deals with missing Booth Items. Commission may be understated.</div>`
     : '';
 
-  renderTable(isQ);
+  renderTable();
 }
 
-function renderTable(isQ) {
+function renderTable() {
   const data = activeRegion==='ALL' ? payoutData : payoutData.filter(r=>r.region===activeRegion);
   if (!data.length) { document.getElementById('payout-table').innerHTML='<div class="empty">No data for this region</div>'; return; }
 
   const ccy = activeRegion==='ALL' ? 'USD' : (data[0]?.currency||'USD');
   const tc  = data.reduce((s,r)=>s+r.commission,0);
-  const tb  = data.reduce((s,r)=>s+(r.q_bonus||0),0);
+  const ta  = data.reduce((s,r)=>s+(r.accelerator||0),0);
   const tp  = data.reduce((s,r)=>s+r.total,0);
 
   document.getElementById('payout-table').innerHTML = `<table>
     <thead><tr>
       <th>Rep</th>
       <th class="r">Commission</th>
-      ${isQ?'<th class="r">Quarterly Bonus</th>':''}
+      <th class="r">Accelerator</th>
       <th class="r">Total</th>
       <th class="r">Prev. Paid</th>
       <th class="r">Pay Amount</th>
@@ -714,7 +675,7 @@ function renderTable(isQ) {
       return `<tr>
         <td><span class="rep-n">${r.rep_name}</span><span class="rep-t">${r.level}</span>${poHtml}</td>
         <td class="r mono">${fmt(r.commission,r.currency)}</td>
-        ${isQ?`<td class="r mono ${r.q_bonus>0?'or':''}">${r.q_bonus>0?fmt(r.q_bonus,r.currency):'<span class="dim">-</span>'}</td>`:''}
+        <td class="r mono ${r.accelerator>0?'or':''}">${r.accelerator>0?fmt(r.accelerator,r.currency):'<span class="dim">-</span>'}</td>
         <td class="r"><strong>${fmt(r.total,r.currency)}</strong></td>
         <td class="r mono dim">${r.already_paid>0?fmt(r.already_paid,r.currency):'<span>-</span>'}</td>
         <td class="r"><input class="paid-in" type="number" value="${payVal}" step="0.01" min="0" id="${pid}"></td>
@@ -723,7 +684,7 @@ function renderTable(isQ) {
     <tr class="totrow">
       <td>Total</td>
       <td class="r">${fmt(tc,ccy)}</td>
-      ${isQ?`<td class="r">${fmt(tb,ccy)}</td>`:''}
+      <td class="r">${fmt(ta,ccy)}</td>
       <td class="r">${fmt(tp,ccy)}</td>
       <td></td><td></td>
     </tr>
@@ -735,8 +696,7 @@ function switchRegion(r, el) {
   activeRegion = r;
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
-  const isQ = payoutData.length ? payoutData[0].has_bonus : false;
-  renderTable(isQ);
+  renderTable();
 }
 
 async function savePayouts() {
@@ -769,9 +729,8 @@ async function downloadReports() {
   const btn   = document.getElementById('btn-reports');
   btn.innerHTML = '<span class="spin"></span> Generating…';
   btn.disabled  = true;
-  const isQ = payoutData.length ? payoutData[0].has_bonus : false;
   const zip = new JSZip();
-  payoutData.forEach(rep => { if (!rep.total) return; zip.file(`${rep.rep_name.replace(/\s/g,'_')}_${rangeLabel}.pdf`, buildPDF(rep,rangeLabel,isQ)); });
+  payoutData.forEach(rep => { if (!rep.total) return; zip.file(`${rep.rep_name.replace(/\s/g,'_')}_${rangeLabel}.pdf`, buildPDF(rep,rangeLabel)); });
   const blob = await zip.generateAsync({type:'blob'});
   Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob), download:`commission_${rangeLabel}.zip`}).click();
   btn.innerHTML = 'Download Reports';
@@ -779,7 +738,7 @@ async function downloadReports() {
   toast('Reports downloaded');
 }
 
-function buildPDF(rep, month, isQ) {
+function buildPDF(rep, month) {
   const {jsPDF} = window.jspdf;
   const doc  = new jsPDF();
   const ccy  = rep.currency;
@@ -799,7 +758,7 @@ function buildPDF(rep, month, isQ) {
 
   const boxes = [
     {l:'Commission',   v:fmt(rep.commission,ccy)},
-    ...(isQ&&rep.q_bonus>0?[{l:'Quarterly Bonus',v:fmt(rep.q_bonus,ccy),ac:true}]:[]),
+    ...(rep.accelerator>0?[{l:'Accelerator', v:fmt(rep.accelerator,ccy), ac:true}]:[]),
     {l:'Total Payout', v:fmt(rep.total,ccy), dk:true},
   ];
   const bw=180/boxes.length-3; let x=14;
@@ -816,12 +775,22 @@ function buildPDF(rep, month, isQ) {
   if (rep.deals?.length) {
     doc.autoTable({
       startY:92,
-      head:[['Deal','Date','Cash Landed','Booth Payable','Rate','Commission','Quarter']],
-      body:rep.deals.map(d=>[d.deal_name,d.payment_date,fmt(d.cash_landed,ccy),fmt(d.booth_payable,ccy),`${(d.comm_rate*100).toFixed(1)}%`,fmt(d.commission,ccy),d.close_quarter||'']),
-      styles:{fontSize:8,cellPadding:4},
-      headStyles:{fillColor:navy,textColor:cream,fontStyle:'bold',fontSize:7},
+      head:[['Deal','Date','Cash Landed','Booth Payable','Comm %','Commission','Accel %','Accelerator','Quarter']],
+      body:rep.deals.map(d=>[
+        d.deal_name,
+        d.payment_date,
+        fmt(d.cash_landed,ccy),
+        fmt(d.booth_payable,ccy),
+        `${(d.comm_rate*100).toFixed(1)}%`,
+        fmt(d.commission,ccy),
+        `${((d.accel_rate||0)*100).toFixed(2)}%`,
+        fmt(d.accelerator||0,ccy),
+        d.close_quarter||'',
+      ]),
+      styles:{fontSize:7,cellPadding:3},
+      headStyles:{fillColor:navy,textColor:cream,fontStyle:'bold',fontSize:6},
       alternateRowStyles:{fillColor:[248,246,240]},
-      columnStyles:{2:{halign:'right'},3:{halign:'right'},4:{halign:'right'},5:{halign:'right'}},
+      columnStyles:{2:{halign:'right'},3:{halign:'right'},4:{halign:'right'},5:{halign:'right'},6:{halign:'right'},7:{halign:'right'}},
       margin:{left:14,right:14},
     });
   }
@@ -900,10 +869,6 @@ async function parseHubSpot(file) {
     fc(['latest invoice paid','is_latest_paid_date']),fc(['invoice number','is_invoicenumbers']),
     fc(['partnership owner']),
   ];
-  // diagnostic: full header list plus which column the booth lookup landed on
-  console.log('[HS parse] headers:', h);
-  console.log('[HS parse] bt_c='+bt_c+' col='+(bt_c>=0?h[bt_c]:'NOT FOUND')+' it_c='+it_c+' pd_c='+pd_c);
-  if(rows.length>1){const s=rows[1];console.log('[HS parse] sample row booth raw='+JSON.stringify(s[bt_c])+' parsed='+cflt(s[bt_c]));}
   const out=[];
   for(let i=1;i<rows.length;i++){
     const r=rows[i], g=c=>c>=0?clr(r[c]):null, hid=g(id_c);
@@ -919,9 +884,6 @@ async function parseHubSpot(file) {
       partnership_owner:g(po_c)||'',  // stored for display, not used in calculation
     });
   }
-  // summary: how many rows ended up with a non-zero booth value
-  const nz = out.filter(d=>d.booth_items_revenue>0).length;
-  console.log('[HS parse] '+nz+'/'+out.length+' rows have non-zero booth_items_revenue');
   return out;
 }
 
