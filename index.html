@@ -738,64 +738,124 @@ async function downloadReports() {
   toast('Reports downloaded');
 }
 
-function buildPDF(rep, month) {
+/* landscape A4 PDF matching the apr26 invoice-table layout from the
+   per-rep master trackers. one row per paid invoice, with goods value,
+   per-deal payment percent, commission and accelerator broken out */
+function buildPDF(rep, period) {
   const {jsPDF} = window.jspdf;
-  const doc  = new jsPDF();
+  const doc  = new jsPDF({orientation:'l', unit:'mm', format:'a4'});
+  const pw   = doc.internal.pageSize.width;    // 297mm landscape
+  const ph   = doc.internal.pageSize.height;   // 210mm landscape
   const ccy  = rep.currency;
   const navy = [33,55,65], orange=[255,96,59], cream=[247,244,231];
 
-  doc.setFillColor(...navy);   doc.rect(0,0,210,26,'F');
-  doc.setFillColor(...orange); doc.rect(0,26,210,1.5,'F');
+  // top header bar
+  doc.setFillColor(...navy);   doc.rect(0,0,pw,26,'F');
+  doc.setFillColor(...orange); doc.rect(0,26,pw,1.5,'F');
   doc.setTextColor(...cream);
   doc.setFont('helvetica','bold');   doc.setFontSize(12); doc.text('BUREAU',14,10);
   doc.setFont('helvetica','normal'); doc.setFontSize(8);
-  doc.text('COMMISSION STATEMENT',14,18); doc.text(month,196,18,{align:'right'});
+  doc.text('COMMISSION STATEMENT',14,18);
+  doc.text(period,pw-14,18,{align:'right'});
 
+  // rep block
   doc.setTextColor(...navy);
   doc.setFont('helvetica','bold');   doc.setFontSize(20); doc.text(rep.rep_name,14,44);
   doc.setFont('helvetica','normal'); doc.setFontSize(9);  doc.setTextColor(100,100,100);
   doc.text(`${rep.level} · ${rep.region} · ${ccy}`,14,52);
 
+  // metric boxes span the landscape width
   const boxes = [
     {l:'Commission',   v:fmt(rep.commission,ccy)},
     ...(rep.accelerator>0?[{l:'Accelerator', v:fmt(rep.accelerator,ccy), ac:true}]:[]),
     {l:'Total Payout', v:fmt(rep.total,ccy), dk:true},
   ];
-  const bw=180/boxes.length-3; let x=14;
-  boxes.forEach(b=>{
-    if(b.dk) doc.setFillColor(...navy); else if(b.ac) doc.setFillColor(255,240,235); else doc.setFillColor(...cream);
+  const avail = pw - 28; // 14mm margin each side
+  const bw    = (avail - (boxes.length-1)*4) / boxes.length;
+  let x = 14;
+  boxes.forEach(b => {
+    if (b.dk)      doc.setFillColor(...navy);
+    else if (b.ac) doc.setFillColor(255,240,235);
+    else           doc.setFillColor(...cream);
     doc.rect(x,60,bw,22,'F');
-    doc.setFontSize(7); doc.setTextColor(b.dk?140:100,b.dk?140:100,b.dk?140:100);
+    doc.setFontSize(7);
+    doc.setTextColor(b.dk?140:100,b.dk?140:100,b.dk?140:100);
     doc.text(b.l.toUpperCase(),x+4,68);
-    doc.setFont('helvetica','bold'); doc.setFontSize(12);
+    doc.setFont('helvetica','bold'); doc.setFontSize(13);
     doc.setTextColor(b.dk?247:(b.ac?255:33),b.dk?244:(b.ac?96:55),b.dk?231:(b.ac?59:65));
-    doc.text(b.v,x+4,78); doc.setFont('helvetica','normal'); x+=bw+3;
+    doc.text(b.v,x+4,78);
+    doc.setFont('helvetica','normal');
+    x += bw + 4;
   });
 
+  // invoice table matching the apr26 layout in the master trackers
   if (rep.deals?.length) {
+    const totalCash  = rep.deals.reduce((s,d)=>s+(d.cash_landed||0),0);
+    const totalGoods = rep.deals.reduce((s,d)=>s+(d.booth_payable||0),0);
+    const totalComm  = rep.deals.reduce((s,d)=>s+(d.commission||0),0);
+    const totalAccel = rep.deals.reduce((s,d)=>s+(d.accelerator||0),0);
+
     doc.autoTable({
-      startY:92,
-      head:[['Deal','Date','Cash Landed','Booth Payable','Comm %','Commission','Accel %','Accelerator','Quarter']],
-      body:rep.deals.map(d=>[
-        d.deal_name,
-        d.payment_date,
-        fmt(d.cash_landed,ccy),
-        fmt(d.booth_payable,ccy),
-        `${(d.comm_rate*100).toFixed(1)}%`,
-        fmt(d.commission,ccy),
+      startY: 92,
+      head: [[
+        'Invoice No','Invoice Date','Payment Date','Customer','Deal Name','Channel',
+        'Amount Paid','Deal Total','Pay %','Note',
+        'Goods Value','Comm %','Commission','Accel %','Accelerator',
+      ]],
+      body: rep.deals.map(d => [
+        d.invoice_number || '',
+        d.invoice_date   || '',
+        d.payment_date   || '',
+        d.customer_name  || '',
+        d.deal_name      || '',
+        d.sales_channel  || '',
+        fmt(d.cash_landed, ccy),
+        d.deal_total ? fmt(d.deal_total, ccy) : '',
+        d.deal_total ? `${(d.payment_pct*100).toFixed(0)}%` : '',
+        d.payment_pct >= 0.99 ? 'Full payment' : 'Instalment',
+        fmt(d.booth_payable, ccy),
+        `${(d.comm_rate*100).toFixed(2)}%`,
+        fmt(d.commission, ccy),
         `${((d.accel_rate||0)*100).toFixed(2)}%`,
-        fmt(d.accelerator||0,ccy),
-        d.close_quarter||'',
+        fmt(d.accelerator||0, ccy),
       ]),
-      styles:{fontSize:7,cellPadding:3},
-      headStyles:{fillColor:navy,textColor:cream,fontStyle:'bold',fontSize:6},
+      foot: [[
+        'Total','','','','','',
+        fmt(totalCash, ccy),
+        '','','',
+        fmt(totalGoods, ccy),
+        '',
+        fmt(totalComm, ccy),
+        '',
+        fmt(totalAccel, ccy),
+      ]],
+      styles:      {fontSize:6, cellPadding:1.5, overflow:'linebreak', valign:'middle'},
+      headStyles:  {fillColor:navy, textColor:cream, fontStyle:'bold', fontSize:5, halign:'left'},
+      footStyles:  {fillColor:[237,234,222], textColor:navy, fontStyle:'bold', fontSize:6},
       alternateRowStyles:{fillColor:[248,246,240]},
-      columnStyles:{2:{halign:'right'},3:{halign:'right'},4:{halign:'right'},5:{halign:'right'},6:{halign:'right'},7:{halign:'right'}},
-      margin:{left:14,right:14},
+      columnStyles:{
+        0:  {cellWidth:14},                        // Invoice No
+        1:  {cellWidth:16},                        // Invoice Date
+        2:  {cellWidth:16},                        // Payment Date
+        3:  {cellWidth:26},                        // Customer
+        4:  {cellWidth:30},                        // Deal Name
+        5:  {cellWidth:20, fontSize:5},            // Channel
+        6:  {cellWidth:17, halign:'right'},        // Amount Paid
+        7:  {cellWidth:17, halign:'right'},        // Deal Total
+        8:  {cellWidth:11, halign:'right'},        // Pay %
+        9:  {cellWidth:18, fontSize:5},            // Note
+        10: {cellWidth:18, halign:'right'},        // Goods Value
+        11: {cellWidth:11, halign:'right'},        // Comm %
+        12: {cellWidth:17, halign:'right'},        // Commission
+        13: {cellWidth:11, halign:'right'},        // Accel %
+        14: {cellWidth:17, halign:'right'},        // Accelerator
+      },
+      margin: {left:14, right:14},
     });
   }
-  const ph=doc.internal.pageSize.height;
-  doc.setFillColor(...navy); doc.rect(0,ph-12,210,12,'F');
+
+  // footer
+  doc.setFillColor(...navy); doc.rect(0,ph-12,pw,12,'F');
   doc.setFontSize(7); doc.setTextColor(...cream);
   doc.text('Bureau Booths · Confidential · '+new Date().toLocaleDateString('en-GB'),14,ph-4);
   return doc.output('arraybuffer');
