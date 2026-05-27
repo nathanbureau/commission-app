@@ -8,10 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Space+Grotesk:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <style>
 /* ─ if National2Condensed is available as a self-hosted asset, inject it above this comment ─ */
 
@@ -178,6 +175,7 @@ tbody tr:last-child { border-bottom:none; }
 tbody tr:hover { background:rgba(33,55,65,.025); }
 tbody tr.totrow { background:var(--surface); border-top:2px solid var(--border); }
 tbody tr.totrow td { font-weight:600; }
+tbody tr.zerorow td { color:var(--muted); }
 td { padding:12px 16px; font-size:13px; vertical-align:middle; }
 td.r { text-align:right; }
 td.mono { font-variant-numeric:tabular-nums; }
@@ -400,7 +398,7 @@ td.mono { font-variant-numeric:tabular-nums; }
       <div class="ph-title">Monthly Payout</div>
       <div class="ph-sub">Commission and accelerator paid monthly. Accelerator rate is set by quarterly attainment on each deal's close quarter.</div>
     </div>
-    <button class="btn btn-navy" onclick="downloadReports()" id="btn-reports">Download Reports</button>
+    <button class="btn btn-navy" onclick="downloadReports()" id="btn-reports">Download Excel</button>
   </div>
   <div class="row">
     <span class="lbl">From</span>
@@ -470,8 +468,8 @@ td.mono { font-variant-numeric:tabular-nums; }
   <div class="ugrid">
     <div class="ucard" id="box-xero-uk" onclick="document.getElementById('file-xero-uk').click()">
       <div class="uc-name">Xero UK</div>
-      <div class="uc-sub">Bureau Booths UK Limited, Receivable Invoice Summary</div>
-      <div class="uc-file" id="fname-xero-uk">Click to upload CSV or XLSX</div>
+      <div class="uc-sub">Account Transactions report. Customise the layout to include the Invoice Number column.</div>
+      <div class="uc-file" id="fname-xero-uk">Click to upload XLSX</div>
       <div class="uc-acts">
         <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-xero-uk" disabled
           onclick="event.stopPropagation();importSource('xero-uk')">Import Xero UK</button>
@@ -479,16 +477,16 @@ td.mono { font-variant-numeric:tabular-nums; }
     </div>
     <div class="ucard" id="box-xero-au" onclick="document.getElementById('file-xero-au').click()">
       <div class="uc-name">Xero AUS</div>
-      <div class="uc-sub">Bureau Booths Pty Limited, must include Last Payment Date</div>
-      <div class="uc-file" id="fname-xero-au">Click to upload CSV or XLSX</div>
+      <div class="uc-sub">Account Transactions report. Customise the layout to include the Invoice Number column.</div>
+      <div class="uc-file" id="fname-xero-au">Click to upload XLSX</div>
       <div class="uc-acts">
         <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-xero-au" disabled
           onclick="event.stopPropagation();importSource('xero-au')">Import Xero AUS</button>
       </div>
     </div>
   </div>
-  <input type="file" id="file-xero-uk" accept=".csv,.xlsx" style="display:none" onchange="handleFile('xero-uk',this)">
-  <input type="file" id="file-xero-au" accept=".csv,.xlsx" style="display:none" onchange="handleFile('xero-au',this)">
+  <input type="file" id="file-xero-uk" accept=".xlsx" style="display:none" onchange="handleFile('xero-uk',this)">
+  <input type="file" id="file-xero-au" accept=".xlsx" style="display:none" onchange="handleFile('xero-au',this)">
 
   <div class="calc-bar">
     <div>
@@ -543,7 +541,7 @@ td.mono { font-variant-numeric:tabular-nums; }
 <script>
 'use strict';
 
-const API    = 'https://script.google.com/macros/s/AKfycbzUKoNeBCQWiLIk0z7Uh20EaOa0veNjysFc0abqO9a7H6FoXFLJ2F6Y6AHTYDMiLYGS/exec';
+const API    = 'https://script.google.com/macros/s/AKfycbx_yh_0z45Y38gvkefnY5I5UVeNBeCcDXdP3AHhv6TNlIQfSLgtDW47mrOFiun0WnCa/exec';
 const PORTAL = 44093193;
 
 /* ─ utils ──────────────────────────────────────────────────────────────── */
@@ -622,19 +620,22 @@ function renderPayout() {
     return;
   }
 
-  const regions = [...new Set(payoutData.map(r => r.region))].sort();
-  if (!activeRegion || !regions.includes(activeRegion)) activeRegion = regions[0];
+  const regions = [...new Set(payoutData.map(r => r.region).filter(Boolean))].sort();
+  if (!activeRegion || !regions.includes(activeRegion) && activeRegion !== 'ALL') activeRegion = regions[0];
   document.getElementById('region-tabs').innerHTML =
     regions.map(r => `<div class="tab ${r===activeRegion?'active':''}" onclick="switchRegion('${r}',this)">${r}</div>`).join('') +
     `<div class="tab ${activeRegion==='ALL'?'active':''}" onclick="switchRegion('ALL',this)">All</div>`;
 
-  const tc = payoutData.reduce((s,r)=>s+r.commission,0);
-  const ta = payoutData.reduce((s,r)=>s+(r.accelerator||0),0);
-  const tp = payoutData.reduce((s,r)=>s+r.total,0);
+  // metric headline counts active reps only (with non-zero commission or
+  // an existing recorded payment for this period)
+  const active = payoutData.filter(r => r.total > 0 || r.already_paid > 0);
+  const tc = active.reduce((s,r)=>s+r.commission,0);
+  const ta = active.reduce((s,r)=>s+(r.accelerator||0),0);
+  const tp = active.reduce((s,r)=>s+r.total,0);
   const mr = document.getElementById('metrics-row');
   mr.style.display = 'grid';
   mr.innerHTML = `
-    <div class="metric"><div class="metric-lbl">Reps</div><div class="metric-val">${payoutData.length}</div></div>
+    <div class="metric"><div class="metric-lbl">Active Reps</div><div class="metric-val">${active.length} <span style="font-size:14px;color:var(--muted);font-weight:400">/ ${payoutData.length}</span></div></div>
     <div class="metric"><div class="metric-lbl">Commission</div><div class="metric-val">${fmtK(tc,'USD')}</div></div>
     <div class="metric"><div class="metric-lbl">Accelerator</div><div class="metric-val or">${fmtK(ta,'USD')}</div></div>
     <div class="metric"><div class="metric-lbl">Total Payout</div><div class="metric-val">${fmtK(tp,'USD')}</div></div>`;
@@ -649,9 +650,9 @@ function renderPayout() {
 
 function renderTable() {
   const data = activeRegion==='ALL' ? payoutData : payoutData.filter(r=>r.region===activeRegion);
-  if (!data.length) { document.getElementById('payout-table').innerHTML='<div class="empty">No data for this region</div>'; return; }
+  if (!data.length) { document.getElementById('payout-table').innerHTML='<div class="empty">No reps in this region</div>'; return; }
 
-  const ccy = activeRegion==='ALL' ? 'USD' : (data[0]?.currency||'USD');
+  const ccy = activeRegion==='ALL' ? 'USD' : (data.find(r=>r.currency)?.currency || 'USD');
   const tc  = data.reduce((s,r)=>s+r.commission,0);
   const ta  = data.reduce((s,r)=>s+(r.accelerator||0),0);
   const tp  = data.reduce((s,r)=>s+r.total,0);
@@ -669,10 +670,11 @@ function renderTable() {
     ${data.map(r => {
       const pid = 'paid_'+r.rep_name.replace(/\W/g,'_');
       const payVal = (r.already_paid>0 ? r.already_paid : r.total).toFixed(2);
+      const zero = r.total === 0 && r.already_paid === 0;
       // collect unique non-empty partnership owners across this rep's deals
       const pos = [...new Set((r.deals||[]).map(d=>d.partnership_owner).filter(Boolean))];
       const poHtml = pos.length ? `<span class="rep-po">via ${pos.join(', ')}</span>` : '';
-      return `<tr>
+      return `<tr${zero?' class="zerorow"':''}>
         <td><span class="rep-n">${r.rep_name}</span><span class="rep-t">${r.level}</span>${poHtml}</td>
         <td class="r mono">${fmt(r.commission,r.currency)}</td>
         <td class="r mono ${r.accelerator>0?'or':''}">${r.accelerator>0?fmt(r.accelerator,r.currency):'<span class="dim">-</span>'}</td>
@@ -720,145 +722,171 @@ async function savePayouts() {
   }
 }
 
-/* ─ reports ─────────────────────────────────────────────────────────────── */
-async function downloadReports() {
-  if (!payoutData.length) { toast('No payout data loaded'); return; }
+/* ─ excel report ─────────────────────────────────────────────────────────── */
+// single xlsx workbook with one Summary tab listing every rep including
+// zero-activity ones, plus one tab per rep with the apr26 invoice layout.
+// numbers are written as raw values with cell number formats applied, so
+// they're editable in Excel without losing percentage / currency typing
+function downloadReports() {
+  if (!payoutData.length) { toast('Load a period first'); return; }
   const start_date = document.getElementById('date-from').value;
   const end_date   = document.getElementById('date-to').value;
-  const rangeLabel = `${start_date}_${end_date}`;
-  const btn   = document.getElementById('btn-reports');
-  btn.innerHTML = '<span class="spin"></span> Generating…';
+  const period     = `${start_date}_${end_date}`;
+  const btn = document.getElementById('btn-reports');
+  btn.innerHTML = '<span class="spin spin-dk"></span> Generating…';
   btn.disabled  = true;
-  const zip = new JSZip();
-  payoutData.forEach(rep => { if (!rep.total) return; zip.file(`${rep.rep_name.replace(/\s/g,'_')}_${rangeLabel}.pdf`, buildPDF(rep,rangeLabel)); });
-  const blob = await zip.generateAsync({type:'blob'});
-  Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob), download:`commission_${rangeLabel}.zip`}).click();
-  btn.innerHTML = 'Download Reports';
-  btn.disabled  = false;
-  toast('Reports downloaded');
-}
 
-/* landscape A4 PDF matching the apr26 invoice-table layout from the
-   per-rep master trackers. one row per paid invoice, with goods value,
-   per-deal payment percent, commission and accelerator broken out */
-function buildPDF(rep, period) {
-  const {jsPDF} = window.jspdf;
-  const doc  = new jsPDF({orientation:'l', unit:'mm', format:'a4'});
-  const pw   = doc.internal.pageSize.width;    // 297mm landscape
-  const ph   = doc.internal.pageSize.height;   // 210mm landscape
-  const ccy  = rep.currency;
-  const navy = [33,55,65], orange=[255,96,59], cream=[247,244,231];
+  try {
+    const wb = XLSX.utils.book_new();
 
-  // top header bar
-  doc.setFillColor(...navy);   doc.rect(0,0,pw,26,'F');
-  doc.setFillColor(...orange); doc.rect(0,26,pw,1.5,'F');
-  doc.setTextColor(...cream);
-  doc.setFont('helvetica','bold');   doc.setFontSize(12); doc.text('BUREAU',14,10);
-  doc.setFont('helvetica','normal'); doc.setFontSize(8);
-  doc.text('COMMISSION STATEMENT',14,18);
-  doc.text(period,pw-14,18,{align:'right'});
-
-  // rep block
-  doc.setTextColor(...navy);
-  doc.setFont('helvetica','bold');   doc.setFontSize(20); doc.text(rep.rep_name,14,44);
-  doc.setFont('helvetica','normal'); doc.setFontSize(9);  doc.setTextColor(100,100,100);
-  doc.text(`${rep.level} · ${rep.region} · ${ccy}`,14,52);
-
-  // metric boxes span the landscape width
-  const boxes = [
-    {l:'Commission',   v:fmt(rep.commission,ccy)},
-    ...(rep.accelerator>0?[{l:'Accelerator', v:fmt(rep.accelerator,ccy), ac:true}]:[]),
-    {l:'Total Payout', v:fmt(rep.total,ccy), dk:true},
-  ];
-  const avail = pw - 28; // 14mm margin each side
-  const bw    = (avail - (boxes.length-1)*4) / boxes.length;
-  let x = 14;
-  boxes.forEach(b => {
-    if (b.dk)      doc.setFillColor(...navy);
-    else if (b.ac) doc.setFillColor(255,240,235);
-    else           doc.setFillColor(...cream);
-    doc.rect(x,60,bw,22,'F');
-    doc.setFontSize(7);
-    doc.setTextColor(b.dk?140:100,b.dk?140:100,b.dk?140:100);
-    doc.text(b.l.toUpperCase(),x+4,68);
-    doc.setFont('helvetica','bold'); doc.setFontSize(13);
-    doc.setTextColor(b.dk?247:(b.ac?255:33),b.dk?244:(b.ac?96:55),b.dk?231:(b.ac?59:65));
-    doc.text(b.v,x+4,78);
-    doc.setFont('helvetica','normal');
-    x += bw + 4;
-  });
-
-  // invoice table matching the apr26 layout in the master trackers
-  if (rep.deals?.length) {
-    const totalCash  = rep.deals.reduce((s,d)=>s+(d.cash_landed||0),0);
-    const totalGoods = rep.deals.reduce((s,d)=>s+(d.booth_payable||0),0);
-    const totalComm  = rep.deals.reduce((s,d)=>s+(d.commission||0),0);
-    const totalAccel = rep.deals.reduce((s,d)=>s+(d.accelerator||0),0);
-
-    doc.autoTable({
-      startY: 92,
-      head: [[
-        'Invoice No','Invoice Date','Payment Date','Customer','Deal Name','Channel',
-        'Amount Paid','Deal Total','Pay %','Note',
-        'Goods Value','Comm %','Commission','Accel %','Accelerator',
-      ]],
-      body: rep.deals.map(d => [
-        d.invoice_number || '',
-        d.invoice_date   || '',
-        d.payment_date   || '',
-        d.customer_name  || '',
-        d.deal_name      || '',
-        d.sales_channel  || '',
-        fmt(d.cash_landed, ccy),
-        d.deal_total ? fmt(d.deal_total, ccy) : '',
-        d.deal_total ? `${(d.payment_pct*100).toFixed(0)}%` : '',
-        d.payment_pct >= 0.99 ? 'Full payment' : 'Instalment',
-        fmt(d.booth_payable, ccy),
-        `${(d.comm_rate*100).toFixed(2)}%`,
-        fmt(d.commission, ccy),
-        `${((d.accel_rate||0)*100).toFixed(2)}%`,
-        fmt(d.accelerator||0, ccy),
+    // 1. summary tab — every configured rep, sorted by region then name
+    const sumHead = ['Rep','Level','Region','Currency','Commission','Accelerator','Total','Already Paid'];
+    const sumRows = [
+      ['Bureau Commission Report'],
+      [`Period: ${start_date} to ${end_date}`],
+      [`Generated: ${new Date().toISOString().slice(0,10)}`],
+      [],
+      sumHead,
+      ...payoutData.map(r => [
+        r.rep_name,
+        r.level    || '',
+        r.region   || '',
+        r.currency || '',
+        r.commission   || 0,
+        r.accelerator  || 0,
+        r.total        || 0,
+        r.already_paid || 0,
       ]),
-      foot: [[
-        'Total','','','','','',
-        fmt(totalCash, ccy),
-        '','','',
-        fmt(totalGoods, ccy),
-        '',
-        fmt(totalComm, ccy),
-        '',
-        fmt(totalAccel, ccy),
-      ]],
-      styles:      {fontSize:6, cellPadding:1.5, overflow:'linebreak', valign:'middle'},
-      headStyles:  {fillColor:navy, textColor:cream, fontStyle:'bold', fontSize:5, halign:'left'},
-      footStyles:  {fillColor:[237,234,222], textColor:navy, fontStyle:'bold', fontSize:6},
-      alternateRowStyles:{fillColor:[248,246,240]},
-      columnStyles:{
-        0:  {cellWidth:14},                        // Invoice No
-        1:  {cellWidth:16},                        // Invoice Date
-        2:  {cellWidth:16},                        // Payment Date
-        3:  {cellWidth:26},                        // Customer
-        4:  {cellWidth:30},                        // Deal Name
-        5:  {cellWidth:20, fontSize:5},            // Channel
-        6:  {cellWidth:17, halign:'right'},        // Amount Paid
-        7:  {cellWidth:17, halign:'right'},        // Deal Total
-        8:  {cellWidth:11, halign:'right'},        // Pay %
-        9:  {cellWidth:18, fontSize:5},            // Note
-        10: {cellWidth:18, halign:'right'},        // Goods Value
-        11: {cellWidth:11, halign:'right'},        // Comm %
-        12: {cellWidth:17, halign:'right'},        // Commission
-        13: {cellWidth:11, halign:'right'},        // Accel %
-        14: {cellWidth:17, halign:'right'},        // Accelerator
-      },
-      margin: {left:14, right:14},
+    ];
+    const sumWS = XLSX.utils.aoa_to_sheet(sumRows);
+    sumWS['!cols'] = [
+      {wch:28},{wch:8},{wch:8},{wch:8},
+      {wch:14},{wch:14},{wch:14},{wch:14},
+    ];
+    // money format on commission / accelerator / total / already paid
+    const sumRange = XLSX.utils.decode_range(sumWS['!ref']);
+    for (let R = 5; R <= sumRange.e.r; R++) {
+      [4, 5, 6, 7].forEach(C => {
+        const a = XLSX.utils.encode_cell({r:R, c:C});
+        if (sumWS[a] && typeof sumWS[a].v === 'number') sumWS[a].z = '#,##0.00';
+      });
+    }
+    XLSX.utils.book_append_sheet(wb, sumWS, 'Summary');
+
+    // 2. one tab per rep, in the same order as the summary
+    const used = new Set(['Summary']);
+    payoutData.forEach(rep => {
+      const ccy = rep.currency || 'USD';
+      // excel sheet names cap at 31 chars and can't contain : / \ ? * [ ]
+      let base = rep.rep_name.replace(/[:\\/?*\[\]]/g, '-').slice(0, 31);
+      let name = base;
+      let i = 1;
+      while (used.has(name)) name = `${base.slice(0, 28)}_${i++}`;
+      used.add(name);
+
+      const head = ['Invoice No','Invoice Date','Payment Date','Customer','Deal Name','Channel',
+                    'Amount Paid','Deal Total','Pay %','Note',
+                    'Goods Value','Comm %','Commission','Accel %','Accelerator'];
+      const rows = [
+        [rep.rep_name],
+        [`${rep.level || ''} · ${rep.region || ''} · ${ccy}`],
+        [],
+        ['Commission',   rep.commission   || 0],
+        ['Accelerator',  rep.accelerator  || 0],
+        ['Total',        rep.total        || 0],
+        ['Already Paid', rep.already_paid || 0],
+        [],
+        head,
+      ];
+
+      if (rep.deals && rep.deals.length) {
+        rep.deals.forEach(d => rows.push([
+          d.invoice_number || '',
+          d.invoice_date   || '',
+          d.payment_date   || '',
+          d.customer_name  || '',
+          d.deal_name      || '',
+          d.sales_channel  || '',
+          d.cash_landed   || 0,
+          d.deal_total    || 0,
+          d.deal_total ? (d.payment_pct || 0) : 0,
+          d.payment_pct >= 0.99 ? 'Full payment' : 'Instalment',
+          d.booth_payable || 0,
+          d.comm_rate     || 0,
+          d.commission    || 0,
+          d.accel_rate    || 0,
+          d.accelerator   || 0,
+        ]));
+        const tCash  = rep.deals.reduce((s,d) => s + (d.cash_landed   || 0), 0);
+        const tGoods = rep.deals.reduce((s,d) => s + (d.booth_payable || 0), 0);
+        const tComm  = rep.deals.reduce((s,d) => s + (d.commission    || 0), 0);
+        const tAccel = rep.deals.reduce((s,d) => s + (d.accelerator   || 0), 0);
+        rows.push([
+          'Total','','','','','',
+          tCash, '', '', '',
+          tGoods, '', tComm, '', tAccel,
+        ]);
+      } else {
+        rows.push(['(no commission lines in this period)']);
+      }
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = [
+        {wch:14},{wch:12},{wch:12},{wch:28},{wch:32},{wch:18},
+        {wch:14},{wch:14},{wch:8},{wch:14},
+        {wch:14},{wch:8},{wch:14},{wch:8},{wch:14},
+      ];
+
+      // money format on the rep-summary block (rows 4..7, col B)
+      ['B4','B5','B6','B7'].forEach(a => { if (ws[a] && typeof ws[a].v === 'number') ws[a].z = '#,##0.00'; });
+
+      // detail table number formatting. row index 8 is the column header,
+      // data + totals start at row 9 (0-indexed 8)
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      const moneyCols = [6,7,10,12,14];   // Amount Paid, Deal Total, Goods Value, Commission, Accelerator
+      const pctCols   = [8,11,13];         // Pay %, Comm %, Accel %
+      for (let R = 9; R <= range.e.r; R++) {
+        moneyCols.forEach(C => {
+          const a = XLSX.utils.encode_cell({r:R, c:C});
+          if (ws[a] && typeof ws[a].v === 'number') ws[a].z = '#,##0.00';
+        });
+        pctCols.forEach(C => {
+          const a = XLSX.utils.encode_cell({r:R, c:C});
+          if (ws[a] && typeof ws[a].v === 'number') ws[a].z = '0.00%';
+        });
+      }
+
+      // flag rows for deals closed in or before Q1 2026. empty close_quarter
+      // means the deal closed before our 2025 tracking window started, which
+      // also counts as a flag since it's even older
+      const flagStyle = {
+        font: {color:{rgb:'9F0000'}, bold:true},
+        fill: {fgColor:{rgb:'FFD6D6'}, patternType:'solid'},
+      };
+      if (rep.deals && rep.deals.length) {
+        rep.deals.forEach((d, idx) => {
+          const old = !d.close_quarter || d.close_quarter <= '2026 Q1';
+          if (!old) return;
+          const R = 9 + idx;  // first data row is index 9 (0-based)
+          for (let C = 0; C <= 14; C++) {
+            const a = XLSX.utils.encode_cell({r:R, c:C});
+            if (!ws[a]) ws[a] = {v:'', t:'s'};
+            ws[a].s = Object.assign({}, ws[a].s || {}, flagStyle);
+          }
+        });
+      }
+
+      XLSX.utils.book_append_sheet(wb, ws, name);
     });
+
+    XLSX.writeFile(wb, `commission_${period}.xlsx`);
+    toast('Excel downloaded');
+  } catch (e) {
+    toast('Error: ' + e.message);
   }
 
-  // footer
-  doc.setFillColor(...navy); doc.rect(0,ph-12,pw,12,'F');
-  doc.setFontSize(7); doc.setTextColor(...cream);
-  doc.text('Bureau Booths · Confidential · '+new Date().toLocaleDateString('en-GB'),14,ph-4);
-  return doc.output('arraybuffer');
+  btn.innerHTML = 'Download Excel';
+  btn.disabled  = false;
 }
 
 /* ─ import ──────────────────────────────────────────────────────────────── */
@@ -880,18 +908,28 @@ async function importSource(key) {
   btn.disabled  = true;
   try {
     let res;
-    if (key==='hs') {
+    if (key === 'hs') {
       res = await apiPost({action:'import_hubspot', data:await parseHubSpot(file)});
-    } else if (key==='qb-us'||key==='qb-ca') {
+      if (res.ok) toast(`Imported ${res.imported||0} deals`);
+      else toast('Error: '+res.error);
+    } else if (key === 'qb-us' || key === 'qb-ca') {
       const source = key==='qb-us' ? 'QB_US' : 'QB_CA';
-      const {invoices,payments} = await parseQB(file, source);
+      const {invoices, payments} = await parseQB(file, source);
       res = await apiPost({action:'import_qb', invoices, payments, source});
+      if (res.ok) toast(`Imported ${res.invoices||0} invoices, ${res.payments||0} payments`);
+      else toast('Error: '+res.error);
     } else {
-      res = await apiPost({action:'import_xero', records:await parseXero(file), source:key==='xero-uk'?'XERO_UK':'XERO_AU'});
+      // xero account transactions: parser returns {invoices, payments, unmatched}
+      const source = key==='xero-uk' ? 'XERO_UK' : 'XERO_AU';
+      const {invoices, payments, unmatched} = await parseXero(file);
+      res = await apiPost({action:'import_xero', invoices, payments, source});
+      if (res.ok) {
+        const tail = unmatched.length ? `, ${unmatched.length} unmatched` : '';
+        toast(`Imported ${res.invoices||0} invoices, ${res.payments||0} payments${tail}`);
+        if (unmatched.length) console.warn(`${source} unmatched payments:`, unmatched);
+      } else toast('Error: '+res.error);
     }
-    if (res.ok) toast(`Imported ${res.imported||res.invoices||0} records`);
-    else toast('Error: '+res.error);
-  } catch(e) { toast('Parse error: '+e.message); }
+  } catch (e) { toast('Parse error: '+e.message); }
   btn.textContent = orig;
   btn.disabled    = false;
 }
@@ -986,82 +1024,122 @@ async function parseQB(file, source) {
   return {invoices,payments};
 }
 
+/* xero account-transactions parser. expects an xlsx export of the report
+   with the layout customised to include the Invoice Number column.
+   payments don't carry invoice numbers themselves so we match each one
+   to an invoice on (customer + reference) with FIFO balance tracking */
 async function parseXero(file) {
-  // handles both csv (summary format) and xlsx (detail format) from xero
-  const ext = file.name.split('.').pop().toLowerCase();
-  let rows;
-  if (ext === 'xlsx' || ext === 'xlsm') {
-    const ab = await file.arrayBuffer();
-    const wb = XLSX.read(ab, {type:'array', cellDates:true});
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:false, dateNF:'yyyy-mm-dd'});
-  } else {
-    rows = await parseCSV(file);
-  }
-  if (!rows.length) throw new Error('Xero file empty');
+  const ab = await file.arrayBuffer();
+  const wb = XLSX.read(ab, {type:'array', cellDates:true});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:false, dateNF:'yyyy-mm-dd'});
 
-  // find header row: col0 contains "invoice date" or "invoice number"
+  // locate the Accounts Receivable section
+  let arStart = -1, arEnd = rows.length;
+  for (let i = 0; i < rows.length; i++) {
+    const c0 = String(rows[i]?.[0]||'').trim();
+    if (c0 === 'Accounts Receivable') arStart = i;
+    else if (arStart >= 0 && c0.toLowerCase().startsWith('closing balance')) { arEnd = i; break; }
+  }
+  if (arStart < 0) throw new Error('No Accounts Receivable section. Export the full Account Transactions report.');
+
+  // find header row inside AR
   let hdr = -1;
-  for (let i = 0; i < Math.min(rows.length, 10); i++) {
-    const v = String(rows[i]?.[0]||'').toLowerCase();
-    if (v.includes('invoice date') || v.includes('invoice number')) { hdr = i; break; }
+  for (let i = arStart; i < arEnd; i++) {
+    if (String(rows[i]?.[0]||'').trim().toLowerCase() === 'date') { hdr = i; break; }
   }
-  if (hdr < 0) throw new Error('Xero header row not found');
+  if (hdr < 0) throw new Error('No header row inside AR section');
 
-  const h  = rows[hdr].map(v => String(v||'').toLowerCase());
-  const gc = kws => { for (const k of kws) { const i=h.findIndex(v=>v.includes(k)); if(i>=0) return i; } return -1; };
-  const td = v => { const s=String(v||'').trim().slice(0,10); return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:null; };
+  const h = rows[hdr].map(v => String(v||'').toLowerCase());
+  // find a column by prefix. when there are multiple matches (multi-currency export
+  // has both Debit/Credit Source and Debit/Credit GBP), prefer the one without "source"
+  const findCol = (kw) => {
+    const cols = h.map((v, i) => v.startsWith(kw) ? i : -1).filter(i => i >= 0);
+    if (cols.length <= 1) return cols[0] ?? -1;
+    return cols.find(i => !h[i].includes('source')) ?? cols[cols.length - 1];
+  };
+  const ic   = h.findIndex(v => v.includes('invoice number'));
+  const refc = h.findIndex(v => v === 'reference' || v.startsWith('reference'));
+  const dc   = findCol('debit');
+  const cc_  = findCol('credit');
+  if (ic < 0)   throw new Error('Add the Invoice Number column to your Xero report layout');
+  if (refc < 0) throw new Error('Reference column missing');
+  if (dc < 0 || cc_ < 0) throw new Error('Debit / Credit columns missing');
 
-  const isDetail = String(rows[0]?.[0]||'').toLowerCase().includes('detail');
+  const td  = v => { const s=String(v||'').trim().slice(0,10); return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:null; };
+  const num = v => parseFloat(String(v||'').replace(/[,$]/g,''))||0;
+  const t   = v => String(v||'').trim();
 
-  if (isDetail) {
-    // detail format: invoice numbers appear as group-header rows above their line items
-    const gross_c  = gc(['gross (source)','gross']);
-    const pay_c    = gc(['last payment date']);
-    const status_c = gc(['status']);
-    let cur = null;
-    const map = new Map();
-    for (let i = hdr + 2; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r || !r.some(v => v != null && v !== '')) continue;
-      const s0 = String(r[0]||'').trim();
-      const s1 = r[1];
-      // group header row: col0 has value, col1 empty, not a "Total" row
-      if (s0 && !s1 && !s0.toLowerCase().startsWith('total')) { cur = s0; continue; }
-      if (!cur || s0.toLowerCase().startsWith('total') || !s1) continue;
-      const e = map.get(cur) || {invoice_number:cur, gross:0, pay_dt:null, status:null};
-      if (gross_c >= 0 && r[gross_c] != null && r[gross_c] !== '') {
-        try { e.gross += parseFloat(String(r[gross_c]).replace(/[,$]/g,''))||0; } catch {}
-      }
-      if (!e.pay_dt && pay_c >= 0 && r[pay_c]) e.pay_dt = td(r[pay_c]);
-      if (!e.status && status_c >= 0 && r[status_c]) e.status = String(r[status_c]);
-      map.set(cur, e);
+  // pass 1: split rows into invoices and raw payment events
+  const invoices = [];
+  const rawPays  = [];
+  for (let i = hdr + 1; i < arEnd; i++) {
+    const r = rows[i];
+    if (!r || !r.length) continue;
+    const date = td(r[0]);
+    if (!date) continue;
+    const source = t(r[1]);
+    const desc   = t(r[2]);
+    const inv    = t(r[ic]);
+    const ref    = t(r[refc]);
+    const debit  = num(r[dc]);
+    const credit = num(r[cc_]);
+
+    if (source === 'Receivable Invoice' && inv) {
+      invoices.push({
+        invoice_number: inv, customer_name: desc, reference: ref,
+        invoice_date: date, gross_amount: debit,
+        is_credit_note: inv.toUpperCase().startsWith('CN-'),
+      });
+    } else if (source === 'Receivable Credit Note' && inv) {
+      // treat as a negative invoice so it can offset a real one
+      invoices.push({
+        invoice_number: inv, customer_name: desc, reference: ref,
+        invoice_date: date, gross_amount: -credit, is_credit_note: true,
+      });
+    } else if (source === 'Receivable Payment') {
+      const customer = desc.replace(/^Payment:\s*/i, '').trim();
+      rawPays.push({customer, ref, date, amount: credit});
     }
-    return [...map.values()].map(e => {
-      const is_cn = e.invoice_number.toUpperCase().startsWith('CN-');
-      return {invoice_number:e.invoice_number, customer_name:'', invoice_date:null,
-        paid_date:e.pay_dt, gross_amount:is_cn&&e.gross>0?-e.gross:e.gross,
-        balance:0, status:e.status||'', is_credit_note:is_cn};
-    });
-  } else {
-    // summary format: one row per invoice
-    const [ic,cc,dc,pc,grc,bc,sc] = [
-      gc(['invoice number','invoice no']), gc(['contact']),
-      gc(['invoice date']), gc(['last payment date','last paid date']),
-      gc(['gross (source)','gross']), gc(['balance (source)','balance']), gc(['status']),
-    ];
-    const out = [];
-    for (let i = hdr + 1; i < rows.length; i++) {
-      const r = rows[i], inv = ic >= 0 ? cln(r[ic]) : '';
-      if (!inv || inv.toLowerCase() === 'total') continue;
-      const gross = cflt(grc >= 0 ? r[grc] : 0), is_cn = inv.toUpperCase().startsWith('CN-');
-      out.push({invoice_number:inv, customer_name:cc>=0?cln(r[cc]):'',
-        invoice_date:td(dc>=0?r[dc]:null), paid_date:td(pc>=0?r[pc]:null),
-        gross_amount:is_cn&&gross>0?-gross:gross,
-        balance:cflt(bc>=0?r[bc]:gross), status:sc>=0?cln(r[sc]):'', is_credit_note:is_cn});
-    }
-    return out;
+    // Credit Note Allocation / Credit Note Refund ignored for now
   }
+
+  // pass 2: build a ledger keyed by (customer + reference), FIFO-allocate
+  // payments. balance tracking handles split-instalment cases where one
+  // invoice receives multiple payments over time
+  const k = (c, r) => `${c.toLowerCase().trim()}|||${r.toLowerCase().trim()}`;
+  const ledger = new Map();
+  invoices.forEach(inv => {
+    const key = k(inv.customer_name, inv.reference);
+    const arr = ledger.get(key) || [];
+    arr.push({invoice_number:inv.invoice_number, balance:inv.gross_amount, invoice_date:inv.invoice_date});
+    ledger.set(key, arr);
+  });
+  ledger.forEach(arr => arr.sort((a,b) => a.invoice_date.localeCompare(b.invoice_date)));
+
+  rawPays.sort((a,b) => a.date.localeCompare(b.date));
+  const payments  = [];
+  const unmatched = [];
+  rawPays.forEach(p => {
+    const arr = ledger.get(k(p.customer, p.ref)) || [];
+    // prefer oldest invoice with enough balance for this payment, else any still open
+    let target = arr.find(inv => inv.balance >= p.amount - 0.01);
+    if (!target) target = arr.find(inv => inv.balance > 0.01);
+    if (target) {
+      payments.push({
+        invoice_number: target.invoice_number,
+        payment_date:   p.date,
+        amount:         p.amount,
+        customer_name:  p.customer,
+        reference:      p.ref,
+      });
+      target.balance -= p.amount;
+    } else {
+      unmatched.push(p);
+    }
+  });
+
+  return {invoices, payments, unmatched};
 }
 
 /* ─ admin ───────────────────────────────────────────────────────────────── */
