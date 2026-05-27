@@ -13,7 +13,7 @@
 /* ─ if National2Condensed is available as a self-hosted asset, inject it above this comment ─ */
 
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-  
+
 :root {
   --bg:      #F7F4E7;
   --surface: #EDEADE;
@@ -1043,12 +1043,13 @@ async function parseXero(file) {
   }
   if (arStart < 0) throw new Error('No Accounts Receivable section. Export the full Account Transactions report.');
 
-  // find header row inside AR
+  // find the column header row anywhere in the file. Xero puts it once near
+  // the top of the report, not repeated inside each account section
   let hdr = -1;
-  for (let i = arStart; i < arEnd; i++) {
+  for (let i = 0; i < rows.length; i++) {
     if (String(rows[i]?.[0]||'').trim().toLowerCase() === 'date') { hdr = i; break; }
   }
-  if (hdr < 0) throw new Error('No header row inside AR section');
+  if (hdr < 0) throw new Error('No header row found. Expected a row starting with "Date" near the top of the file.');
 
   const h = rows[hdr].map(v => String(v||'').toLowerCase());
   // find a column by prefix. when there are multiple matches (multi-currency export
@@ -1073,7 +1074,7 @@ async function parseXero(file) {
   // pass 1: split rows into invoices and raw payment events
   const invoices = [];
   const rawPays  = [];
-  for (let i = hdr + 1; i < arEnd; i++) {
+  for (let i = arStart + 1; i < arEnd; i++) {
     const r = rows[i];
     if (!r || !r.length) continue;
     const date = td(r[0]);
