@@ -396,7 +396,7 @@ td.mono { font-variant-numeric:tabular-nums; }
   <div class="ph">
     <div>
       <div class="ph-title">Monthly Payout</div>
-      <div class="ph-sub">Commission and accelerator paid monthly. Accelerator rate is set by quarterly attainment on each deal's close quarter.</div>
+      <div class="ph-sub">Commission paid in the month a payment lands. Accelerator paid once the deal's close quarter ends, then alongside future payments.</div>
     </div>
     <button class="btn btn-navy" onclick="downloadReports()" id="btn-reports">Download Excel</button>
   </div>
@@ -541,7 +541,7 @@ td.mono { font-variant-numeric:tabular-nums; }
 <script>
 'use strict';
 
-const API    = 'https://script.google.com/macros/s/AKfycbx1_8-lAdQTSIM7innFyGxtbLIEy-1hJArY1fvSjTpJ9JX-DRtbhg7jk2wAhzEYTWob/exec';
+const API    = 'https://script.google.com/macros/s/AKfycbw5-GLXaARsSYUYPhoo631V5LOEEA2mGGWMjWwA3sU8Lts6Z50vAAoxjNeFVf-EDwXb/exec';
 const PORTAL = 44093193;
 
 /* ─ utils ──────────────────────────────────────────────────────────────── */
@@ -640,7 +640,9 @@ function renderPayout() {
     <div class="metric"><div class="metric-lbl">Accelerator</div><div class="metric-val or">${fmtK(ta,'USD')}</div></div>
     <div class="metric"><div class="metric-lbl">Total Payout</div><div class="metric-val">${fmtK(tp,'USD')}</div></div>`;
 
-  const nb = payoutData.filter(r => r.deals?.some(d => !d.booth_payable));
+  // ignore accel-only true-up rows when checking for missing booth items,
+  // since those rows deliberately zero out booth_payable to avoid double-counting
+  const nb = payoutData.filter(r => r.deals?.some(d => !d.booth_payable && !d.accel_only));
   document.getElementById('payout-warn').innerHTML = nb.length
     ? `<div class="alert alert-w" style="margin-bottom:20px">&#9888; ${nb.length} rep${nb.length>1?'s have':' has'} deals with missing Booth Items. Commission may be understated.</div>`
     : '';
@@ -810,7 +812,9 @@ function downloadReports() {
           d.cash_landed   || 0,
           d.deal_total    || 0,
           d.deal_total ? (d.payment_pct || 0) : 0,
-          d.payment_pct >= 0.99 ? 'Full payment' : 'Instalment',
+          // accel-only rows are end-of-quarter true-ups where commission was
+          // paid in a prior month and only the accelerator portion pays now
+          d.accel_only ? `Accel true-up ${d.close_quarter || ''}`.trim() : (d.payment_pct >= 0.99 ? 'Full payment' : 'Instalment'),
           d.booth_payable || 0,
           d.comm_rate     || 0,
           d.commission    || 0,
@@ -833,7 +837,7 @@ function downloadReports() {
       const ws = XLSX.utils.aoa_to_sheet(rows);
       ws['!cols'] = [
         {wch:14},{wch:12},{wch:12},{wch:28},{wch:32},{wch:18},
-        {wch:14},{wch:14},{wch:8},{wch:14},
+        {wch:14},{wch:14},{wch:8},{wch:18},
         {wch:14},{wch:8},{wch:14},{wch:8},{wch:14},
       ];
 
