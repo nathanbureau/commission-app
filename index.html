@@ -503,7 +503,38 @@ td.mono { font-variant-numeric:tabular-nums; }
   <div class="ph">
     <div>
       <div class="ph-title">Admin</div>
-      <div class="ph-sub">Match unlinked invoices, review data quality and payout history.</div>
+      <div class="ph-sub">Set exchange rates, match unlinked invoices, review data quality and payout history.</div>
+    </div>
+  </div>
+  <div class="acard">
+    <div class="acard-hd">
+      <div class="acard-title">Exchange Rates</div>
+      <button class="btn btn-ghost" style="font-size:10px;padding:6px 14px" onclick="loadFx()">Refresh</button>
+    </div>
+    <div class="acard-body">
+      <p class="note-sm">Rates are <strong>USD per 1 unit</strong> of each currency and apply from their effective date until the next one. Add a past date to fix history, today's date for the current rate, or a future date to set one going forward. Payouts convert at the rate in effect on each payment's date. USD is the base and is always 1.</p>
+      <div id="fx-current"></div>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:16px 0 4px">
+        <div>
+          <div class="lbl" style="margin-bottom:5px">Currency</div>
+          <select id="fx-ccy">
+            <option value="CAD">CAD</option>
+            <option value="AUD">AUD</option>
+            <option value="GBP">GBP</option>
+            <option value="EUR">EUR</option>
+          </select>
+        </div>
+        <div>
+          <div class="lbl" style="margin-bottom:5px">Effective from</div>
+          <input type="date" id="fx-date" style="font-family:var(--sg);font-size:13px;border:1px solid var(--border);border-radius:4px;padding:7px 10px;background:var(--bg);color:var(--text)">
+        </div>
+        <div>
+          <div class="lbl" style="margin-bottom:5px">Rate · 1 unit = ? USD</div>
+          <input type="number" id="fx-rate" step="0.0001" min="0" placeholder="0.0000" class="paid-in" style="width:150px;text-align:left">
+        </div>
+        <button class="btn btn-navy" style="padding:9px 18px" onclick="saveFx()">Add / Update</button>
+      </div>
+      <div id="fx-table" style="margin-top:14px"><div class="empty">Click Refresh to load</div></div>
     </div>
   </div>
   <div class="acard">
@@ -541,7 +572,7 @@ td.mono { font-variant-numeric:tabular-nums; }
 <script>
 'use strict';
 
-const API    = 'https://script.google.com/macros/s/AKfycbw5-GLXaARsSYUYPhoo631V5LOEEA2mGGWMjWwA3sU8Lts6Z50vAAoxjNeFVf-EDwXb/exec';
+const API    = 'https://script.google.com/macros/s/AKfycbznvMW_chTBl-NIx42oQpDrOZ0UsuZQy5bt885M1lQotWLTxsngYC7whyTlGFh16ip1/exec';
 const PORTAL = 44093193;
 
 /* ─ utils ──────────────────────────────────────────────────────────────── */
@@ -576,7 +607,7 @@ function nav(id, btn) {
   document.querySelectorAll('.hdr-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(`page-${id}`).classList.add('active');
   btn.classList.add('active');
-  if (id === 'admin') loadUnlinked();
+  if (id === 'admin') { loadUnlinked(); loadFx(); }
 }
 
 /* ─ state ───────────────────────────────────────────────────────────────── */
@@ -628,17 +659,18 @@ function renderPayout() {
 
   // metric headline counts active reps only (with non-zero commission or
   // an existing recorded payment for this period)
+  // headline totals are FX-converted to USD so cross-region figures add up
   const active = payoutData.filter(r => r.total > 0 || r.already_paid > 0);
-  const tc = active.reduce((s,r)=>s+r.commission,0);
-  const ta = active.reduce((s,r)=>s+(r.accelerator||0),0);
-  const tp = active.reduce((s,r)=>s+r.total,0);
+  const tc = active.reduce((s,r)=>s+(r.usd_commission||0),0);
+  const ta = active.reduce((s,r)=>s+(r.usd_accelerator||0),0);
+  const tp = active.reduce((s,r)=>s+(r.usd_total||0),0);
   const mr = document.getElementById('metrics-row');
   mr.style.display = 'grid';
   mr.innerHTML = `
     <div class="metric"><div class="metric-lbl">Active Reps</div><div class="metric-val">${active.length} <span style="font-size:14px;color:var(--muted);font-weight:400">/ ${payoutData.length}</span></div></div>
-    <div class="metric"><div class="metric-lbl">Commission</div><div class="metric-val">${fmtK(tc,'USD')}</div></div>
-    <div class="metric"><div class="metric-lbl">Accelerator</div><div class="metric-val or">${fmtK(ta,'USD')}</div></div>
-    <div class="metric"><div class="metric-lbl">Total Payout</div><div class="metric-val">${fmtK(tp,'USD')}</div></div>`;
+    <div class="metric"><div class="metric-lbl">Commission · USD</div><div class="metric-val">${fmtK(tc,'USD')}</div></div>
+    <div class="metric"><div class="metric-lbl">Accelerator · USD</div><div class="metric-val or">${fmtK(ta,'USD')}</div></div>
+    <div class="metric"><div class="metric-lbl">Total Payout · USD</div><div class="metric-val">${fmtK(tp,'USD')}</div></div>`;
 
   // ignore accel-only true-up rows when checking for missing booth items,
   // since those rows deliberately zero out booth_payable to avoid double-counting
@@ -651,13 +683,22 @@ function renderPayout() {
 }
 
 function renderTable() {
-  const data = activeRegion==='ALL' ? payoutData : payoutData.filter(r=>r.region===activeRegion);
+  // the "All" tab is a consolidated, read-only USD view (every region converted
+  // at payment-date FX). per-region tabs stay in the rep's own currency and are
+  // where payments get recorded, so currencies never get mixed on save.
+  const isAll = activeRegion === 'ALL';
+  const data  = isAll ? payoutData : payoutData.filter(r=>r.region===activeRegion);
   if (!data.length) { document.getElementById('payout-table').innerHTML='<div class="empty">No reps in this region</div>'; return; }
 
-  const ccy = activeRegion==='ALL' ? 'USD' : (data.find(r=>r.currency)?.currency || 'USD');
-  const tc  = data.reduce((s,r)=>s+r.commission,0);
-  const ta  = data.reduce((s,r)=>s+(r.accelerator||0),0);
-  const tp  = data.reduce((s,r)=>s+r.total,0);
+  const ccy  = isAll ? 'USD' : (data.find(r=>r.currency)?.currency || 'USD');
+  const valC = r => isAll ? (r.usd_commission   ||0) : r.commission;
+  const valA = r => isAll ? (r.usd_accelerator  ||0) : (r.accelerator||0);
+  const valT = r => isAll ? (r.usd_total        ||0) : r.total;
+  const valP = r => isAll ? (r.usd_already_paid ||0) : r.already_paid;
+
+  const tc = data.reduce((s,r)=>s+valC(r),0);
+  const ta = data.reduce((s,r)=>s+valA(r),0);
+  const tp = data.reduce((s,r)=>s+valT(r),0);
 
   document.getElementById('payout-table').innerHTML = `<table>
     <thead><tr>
@@ -671,18 +712,23 @@ function renderTable() {
     <tbody>
     ${data.map(r => {
       const pid = 'paid_'+r.rep_name.replace(/\W/g,'_');
+      const cVal = valC(r), aVal = valA(r), tVal = valT(r), pVal = valP(r);
       const payVal = (r.already_paid>0 ? r.already_paid : r.total).toFixed(2);
-      const zero = r.total === 0 && r.already_paid === 0;
-      // collect unique non-empty partnership owners across this rep's deals
-      const pos = [...new Set((r.deals||[]).map(d=>d.partnership_owner).filter(Boolean))];
-      const poHtml = pos.length ? `<span class="rep-po">via ${pos.join(', ')}</span>` : '';
+      const zero = tVal === 0 && pVal === 0;
+      // CAM partnership overrides: flag the row and list the deal owners this
+      // CAM is earning a 25% partner share on
+      const partnerDeals = (r.deals||[]).filter(d=>d.is_partner);
+      const partnerTag = partnerDeals.length
+        ? `<span class="rep-t" style="color:var(--orange);background:rgba(255,96,59,.08)">CAM 25%</span>` : '';
+      const pof = [...new Set(partnerDeals.map(d=>d.partner_of).filter(Boolean))];
+      const poHtml = pof.length ? `<span class="rep-po">partner on deals via ${pof.join(', ')}</span>` : '';
       return `<tr${zero?' class="zerorow"':''}>
-        <td><span class="rep-n">${r.rep_name}</span><span class="rep-t">${r.level}</span>${poHtml}</td>
-        <td class="r mono">${fmt(r.commission,r.currency)}</td>
-        <td class="r mono ${r.accelerator>0?'or':''}">${r.accelerator>0?fmt(r.accelerator,r.currency):'<span class="dim">-</span>'}</td>
-        <td class="r"><strong>${fmt(r.total,r.currency)}</strong></td>
-        <td class="r mono dim">${r.already_paid>0?fmt(r.already_paid,r.currency):'<span>-</span>'}</td>
-        <td class="r"><input class="paid-in" type="number" value="${payVal}" step="0.01" min="0" id="${pid}"></td>
+        <td><span class="rep-n">${r.rep_name}</span><span class="rep-t">${r.level}</span>${partnerTag}${poHtml}</td>
+        <td class="r mono">${fmt(cVal,ccy)}</td>
+        <td class="r mono ${aVal>0?'or':''}">${aVal>0?fmt(aVal,ccy):'<span class="dim">-</span>'}</td>
+        <td class="r"><strong>${fmt(tVal,ccy)}</strong></td>
+        <td class="r mono dim">${pVal>0?fmt(pVal,ccy):'<span>-</span>'}</td>
+        <td class="r">${isAll ? '<span class="dim">—</span>' : `<input class="paid-in" type="number" value="${payVal}" step="0.01" min="0" id="${pid}">`}</td>
       </tr>`;
     }).join('')}
     <tr class="totrow">
@@ -694,6 +740,13 @@ function renderTable() {
     </tr>
     </tbody>
   </table>`;
+
+  // disable Mark as Paid on the consolidated view (no per-rep inputs there)
+  const saveBtn  = document.getElementById('btn-save');
+  const saveNote = document.getElementById('save-note');
+  if (saveBtn)  saveBtn.disabled = isAll;
+  if (saveNote) saveNote.textContent = isAll
+    ? 'Consolidated USD view — switch to a region tab to record payments.' : '';
 }
 
 function switchRegion(r, el) {
@@ -704,14 +757,22 @@ function switchRegion(r, el) {
 }
 
 async function savePayouts() {
+  // the consolidated USD tab has no per-rep inputs; saving from it would write
+  // zeros and wipe the period, so block it and steer to a region tab
+  if (activeRegion === 'ALL') { toast('Switch to a region tab to record payments'); return; }
   const btn   = document.getElementById('btn-save');
   btn.innerHTML = '<span class="spin"></span> Saving…';
   btn.disabled  = true;
-  const entries = payoutData.map(r => ({
-    rep_name: r.rep_name,
-    amount:   parseFloat(document.getElementById('paid_'+r.rep_name.replace(/\W/g,'_'))?.value||0),
-    currency: r.currency,
-  }));
+  // submit ONLY the active region's reps (the rows that actually have inputs).
+  // the backend upserts by rep, so other regions' payouts for this period are
+  // preserved instead of being wiped when you save tab by tab.
+  const entries = payoutData
+    .filter(r => r.region === activeRegion)
+    .map(r => ({
+      rep_name: r.rep_name,
+      amount:   parseFloat(document.getElementById('paid_'+r.rep_name.replace(/\W/g,'_'))?.value||0),
+      currency: r.currency,
+    }));
   const res = await apiPost({action:'save_payouts', period:rangeKey, entries});
   btn.innerHTML = 'Mark as Paid';
   btn.disabled  = false;
@@ -813,8 +874,11 @@ function downloadReports() {
           d.deal_total    || 0,
           d.deal_total ? (d.payment_pct || 0) : 0,
           // accel-only rows are end-of-quarter true-ups where commission was
-          // paid in a prior month and only the accelerator portion pays now
-          d.accel_only ? `Accel true-up ${d.close_quarter || ''}`.trim() : (d.payment_pct >= 0.99 ? 'Full payment' : 'Instalment'),
+          // paid in a prior month and only the accelerator portion pays now.
+          // partner rows are CAM 25% overrides on another rep's deal.
+          d.is_partner
+            ? `CAM 25% partner${d.partner_of ? ' (via '+d.partner_of+')' : ''}${d.orig_currency && d.orig_currency!==ccy ? ' · orig '+d.orig_currency : ''}`
+            : (d.accel_only ? `Accel true-up ${d.close_quarter || ''}`.trim() : (d.payment_pct >= 0.99 ? 'Full payment' : 'Instalment')),
           d.booth_payable || 0,
           d.comm_rate     || 0,
           d.commission    || 0,
@@ -1169,6 +1233,77 @@ async function parseXero(file) {
   });
 
   return {invoices, payments, unmatched};
+}
+
+/* ─ fx rates ─────────────────────────────────────────────────────────────── */
+let fxCache = [];
+
+async function loadFx() {
+  const c = document.getElementById('fx-table');
+  if (!c) return;
+  // default the effective-date input to today the first time admin opens
+  const dEl = document.getElementById('fx-date');
+  if (dEl && !dEl.value) dEl.value = new Date().toISOString().slice(0,10);
+  c.innerHTML = '<div class="empty">Loading…</div>';
+  const res = await apiGet('fx_rates');
+  if (!res.ok) { c.innerHTML = 'Error: '+res.error; return; }
+  fxCache = res.data || [];
+  renderFx();
+}
+
+function renderFx() {
+  // current rate per currency = latest row whose effective date is on/before today
+  const today = new Date().toISOString().slice(0,10);
+  const byCcy = {};
+  fxCache.forEach(r => {
+    if (r.effective_date <= today &&
+        (!byCcy[r.currency] || r.effective_date > byCcy[r.currency].effective_date)) {
+      byCcy[r.currency] = r;
+    }
+  });
+  const order  = ['CAD','AUD','GBP','EUR'];
+  const curEls = order.filter(c=>byCcy[c]).map(c =>
+    `<div class="metric"><div class="metric-lbl">${c} → USD</div><div class="metric-val" style="font-size:22px">${byCcy[c].rate}</div><div class="uc-sub">since ${byCcy[c].effective_date}</div></div>`).join('');
+  document.getElementById('fx-current').innerHTML = curEls
+    ? `<div class="metrics" style="margin-bottom:0">${curEls}</div>` : '';
+
+  const c = document.getElementById('fx-table');
+  if (!fxCache.length) { c.innerHTML = '<div class="empty">No rates yet</div>'; return; }
+  const rows = [...fxCache].sort((a,b) =>
+    a.currency.localeCompare(b.currency) || b.effective_date.localeCompare(a.effective_date));
+  c.innerHTML = `<table>
+    <thead><tr><th>Currency</th><th>Effective From</th><th class="r">1 unit = USD</th><th></th></tr></thead>
+    <tbody>
+    ${rows.map(r=>`<tr>
+      <td><strong>${r.currency}</strong></td>
+      <td style="font-size:12px">${r.effective_date}</td>
+      <td class="r mono">${r.rate}</td>
+      <td class="r"><button class="btn btn-ghost" style="font-size:10px;padding:5px 12px"
+        onclick="delFx('${r.currency}','${r.effective_date}')">Delete</button></td>
+    </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+async function saveFx() {
+  const currency       = document.getElementById('fx-ccy').value;
+  const effective_date = document.getElementById('fx-date').value;
+  const rate           = parseFloat(document.getElementById('fx-rate').value);
+  if (!effective_date) { toast('Pick an effective date'); return; }
+  if (!(rate > 0))     { toast('Enter a positive rate'); return; }
+  const res = await apiPost({action:'set_fx_rate', currency, effective_date, rate});
+  if (res.ok) {
+    fxCache = res.rates || fxCache;
+    renderFx();
+    document.getElementById('fx-rate').value = '';
+    toast(`Saved ${currency} from ${effective_date}`);
+  } else toast('Error: '+res.error);
+}
+
+async function delFx(currency, effective_date) {
+  const res = await apiPost({action:'delete_fx_rate', currency, effective_date});
+  if (res.ok) { fxCache = res.rates || []; renderFx(); toast('Rate deleted'); }
+  else toast('Error: '+res.error);
 }
 
 /* ─ admin ───────────────────────────────────────────────────────────────── */
