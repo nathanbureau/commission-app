@@ -1033,18 +1033,26 @@ function hsFetch_(url, options) {
   throw new Error('HubSpot kept rate-limiting after 5 tries');
 }
 
-// owner id -> "First Last" (deal owner + partnership owner are stored as ids via api)
+// owner id -> "First Last" (deal owner + partnership owner are stored as ids via api).
+// pulls active AND archived owners so deals owned by deactivated reps still resolve
+// to a name (and so keep earning commission on their historical deals).
 function hsOwners_(token) {
   const map = {};
-  let after = '';
-  do {
-    const url = HS_BASE + '/crm/v3/owners?limit=100' + (after ? '&after=' + after : '');
-    const data = hsFetch_(url, {headers: {authorization: 'Bearer ' + token}});
-    (data.results || []).forEach(o => {
-      map[String(o.id)] = [o.firstName, o.lastName].filter(Boolean).join(' ').trim() || o.email || '';
-    });
-    after = data.paging && data.paging.next ? data.paging.next.after : '';
-  } while (after);
+  const pull = (archived) => {
+    let after = '';
+    do {
+      const url = HS_BASE + '/crm/v3/owners?limit=100'
+        + (archived ? '&archived=true' : '')
+        + (after ? '&after=' + after : '');
+      const data = hsFetch_(url, {headers: {authorization: 'Bearer ' + token}});
+      (data.results || []).forEach(o => {
+        map[String(o.id)] = [o.firstName, o.lastName].filter(Boolean).join(' ').trim() || o.email || '';
+      });
+      after = data.paging && data.paging.next ? data.paging.next.after : '';
+    } while (after);
+  };
+  pull(false);
+  try { pull(true); } catch (e) { /* archived owners are best-effort */ }
   return map;
 }
 
