@@ -1,0 +1,3 @@
+# Backend Apps Script lives in the Google Sheet (Extensions > Apps Script), not here.
+# It holds a HubSpot token, so it must never be committed to this public repo.
+Code.gs
