@@ -1307,18 +1307,41 @@ async function delFx(currency, effective_date) {
 }
 
 /* ─ admin ───────────────────────────────────────────────────────────────── */
+let unlinkedCache = [];
+let unlinkedSort  = 'date';
+
 async function loadUnlinked() {
   const c=document.getElementById('unlinked-container');
   c.innerHTML='<div class="empty">Loading…</div>';
   const [ur,dr]=await Promise.all([apiGet('unlinked'),apiGet('deals')]);
   dealsCache=dr.ok?dr.data:[];
   if(!ur.ok){c.innerHTML='Error: '+ur.error;return;}
-  if(!ur.data.length){c.innerHTML='<div class="alert alert-ok">All paid invoices are linked to deals.</div>';return;}
-  c.innerHTML=`<div class="alert alert-i" style="margin-bottom:14px">${ur.data.length} invoice${ur.data.length>1?'s':''} need linking</div>
+  unlinkedCache=ur.data||[];
+  renderUnlinked();
+}
+
+function renderUnlinked() {
+  const c=document.getElementById('unlinked-container');
+  if(!unlinkedCache.length){c.innerHTML='<div class="alert alert-ok">All paid invoices are linked to deals.</div>';return;}
+  const cmp={
+    date:(a,b)=>(b.invoice_date||'').localeCompare(a.invoice_date||''),
+    size:(a,b)=>(Number(b.gross_amount)||0)-(Number(a.gross_amount)||0),
+    cust:(a,b)=>(a.customer_name||'').localeCompare(b.customer_name||''),
+  }[unlinkedSort];
+  const data=unlinkedCache.slice().sort(cmp);
+  const controls=`<div class="row" style="margin-bottom:12px">
+    <span class="lbl">Sort</span>
+    <select onchange="unlinkedSort=this.value;renderUnlinked()">
+      <option value="date"${unlinkedSort==='date'?' selected':''}>Newest first</option>
+      <option value="size"${unlinkedSort==='size'?' selected':''}>Largest amount</option>
+      <option value="cust"${unlinkedSort==='cust'?' selected':''}>Customer A–Z</option>
+    </select>
+  </div>`;
+  c.innerHTML=controls+`<div class="alert alert-i" style="margin-bottom:14px">${data.length} invoice${data.length>1?'s':''} need linking</div>
   <table>
     <thead><tr><th>Invoice</th><th>Customer</th><th>Source</th><th>Date</th><th class="r">Amount</th><th>Link to Deal</th></tr></thead>
     <tbody>
-    ${ur.data.map(inv=>`<tr id="inv-${inv.invoice_number}">
+    ${data.map(inv=>`<tr id="inv-${inv.invoice_number}">
       <td><strong style="font-size:12px">${inv.invoice_number}</strong></td>
       <td style="font-size:12px">${inv.customer_name||''}</td>
       <td style="font-size:11px;color:var(--muted)">${inv.source||''}</td>
@@ -1346,7 +1369,8 @@ function searchDeals(input, invNum) {
   const q=input.value.toLowerCase(), sel=document.getElementById(`dsel-${invNum}`);
   sel.innerHTML='<option value="">-- select --</option>';
   if(q.length<2||!dealsCache) return;
-  dealsCache.filter(d=>(d.deal_name||'').toLowerCase().includes(q)||(d.owner||'').toLowerCase().includes(q))
+  // only offer real (non-nil) deals as link targets
+  dealsCache.filter(d=>Number(d.invoice_total)>0 && ((d.deal_name||'').toLowerCase().includes(q)||(d.owner||'').toLowerCase().includes(q)))
     .slice(0,30).forEach(d=>{const o=document.createElement('option');o.value=d.hubspot_id;o.textContent=`${d.deal_name} | ${d.owner} | ${d.close_date||''}`;sel.appendChild(o);});
 }
 
@@ -1358,24 +1382,105 @@ async function linkInvoice(n) {
   else toast('Error: '+res.error);
 }
 
+let missingCache        = [];
+let missingSort         = 'size';
+let missingShowReviewed = false;
+
 async function loadMissing() {
   const c=document.getElementById('missing-container');
   c.innerHTML='<div class="empty">Loading…</div>';
   const res=await apiGet('missing');
-  if(!res.ok||!res.data?.length){c.innerHTML='<div class="alert alert-ok">No deals with missing booth items.</div>';return;}
-  c.innerHTML=`<div class="alert alert-w" style="margin-bottom:14px">${res.data.length} deals excluded from commission</div>
+  if(!res.ok){c.innerHTML='Error: '+res.error;return;}
+  missingCache=res.data||[];
+  renderMissing();
+}
+
+function renderMissing() {
+  const c=document.getElementById('missing-container');
+  const reviewedCount = missingCache.filter(d=>d.review_status).length;
+  const unreviewed    = missingCache.length - reviewedCount;
+  let data = missingCache.slice();
+  if (!missingShowReviewed) data = data.filter(d=>!d.review_status);
+  const cmp={
+    size:(a,b)=>(Number(b.invoice_total)||0)-(Number(a.invoice_total)||0),
+    date:(a,b)=>(b.close_date||'').localeCompare(a.close_date||''),
+    rep: (a,b)=>(a.owner||'').localeCompare(b.owner||''),
+  }[missingSort];
+  data.sort(cmp);
+
+  const controls=`<div class="row" style="margin-bottom:12px">
+    <span class="lbl">Sort</span>
+    <select onchange="missingSort=this.value;renderMissing()">
+      <option value="size"${missingSort==='size'?' selected':''}>Largest invoice</option>
+      <option value="date"${missingSort==='date'?' selected':''}>Newest first</option>
+      <option value="rep"${missingSort==='rep'?' selected':''}>Rep A–Z</option>
+    </select>
+    <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:8px">
+      <input type="checkbox" ${missingShowReviewed?'checked':''} onchange="missingShowReviewed=this.checked;renderMissing()"> show reviewed (${reviewedCount})
+    </label>
+  </div>`;
+
+  if(!missingCache.length){c.innerHTML=controls+'<div class="alert alert-ok">No deals with missing booth items.</div>';return;}
+  if(!data.length){c.innerHTML=controls+'<div class="alert alert-ok">Nothing left to review — every missing-booth deal has been confirmed excluded or brought back in.</div>';return;}
+
+  c.innerHTML=controls+`<div class="alert alert-w" style="margin-bottom:14px">${unreviewed} deal${unreviewed!==1?'s':''} need review · excluded from commission until you decide</div>
   <table>
-    <thead><tr><th>Rep</th><th>Deal</th><th>Currency</th><th class="r">Invoice Total</th><th>HubSpot</th></tr></thead>
+    <thead><tr><th>Rep</th><th>Deal</th><th>Close</th><th>Currency</th><th class="r">Invoice Total</th><th>Status</th><th>Action</th><th>HS</th></tr></thead>
     <tbody>
-    ${res.data.map(d=>`<tr>
-      <td style="font-size:12px">${d.owner||''}</td>
-      <td style="font-size:12px">${d.deal_name||''}</td>
-      <td style="font-size:11px;color:var(--muted)">${d.currency||''}</td>
-      <td class="r mono" style="font-size:12px">${fmt(d.invoice_total,d.currency)}</td>
-      <td><a class="hs-link" href="https://app.hubspot.com/contacts/${PORTAL}/deal/${d.hubspot_id}" target="_blank">Open &#8594;</a></td>
-    </tr>`).join('')}
+    ${data.map(d=>{
+      const badge = d.review_status==='excluded'
+        ? '<span class="rep-t">excluded &#10003;</span>'
+        : d.review_status==='include'
+        ? '<span class="rep-t" style="color:var(--accent);background:rgba(49,113,241,.08)">included</span>'
+        : (d.likely_non_booth ? '<span class="rep-t" style="color:var(--muted)">likely non-booth</span>' : '');
+      const undo = d.review_status ? `<button class="btn btn-ghost" style="font-size:10px;padding:5px 9px" onclick="reviewSet('${d.hubspot_id}','clear')">Undo</button>` : '';
+      return `<tr id="m-${d.hubspot_id}">
+        <td style="font-size:12px">${d.owner||''}</td>
+        <td style="font-size:12px">${d.deal_name||''}</td>
+        <td style="font-size:11px">${d.close_date||''}</td>
+        <td style="font-size:11px;color:var(--muted)">${d.currency||''}</td>
+        <td class="r mono" style="font-size:12px">${fmt(d.invoice_total,d.currency)}</td>
+        <td>${badge}</td>
+        <td>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-navy"  style="font-size:10px;padding:5px 9px" onclick="reviewInclude('${d.hubspot_id}','${d.currency||''}')">Include&#8230;</button>
+            <button class="btn btn-ghost" style="font-size:10px;padding:5px 9px" onclick="reviewSet('${d.hubspot_id}','excluded')">Exclude</button>
+            ${undo}
+          </div>
+        </td>
+        <td><a class="hs-link" href="https://app.hubspot.com/contacts/${PORTAL}/deal/${d.hubspot_id}" target="_blank">Open &#8594;</a></td>
+      </tr>`;
+    }).join('')}
     </tbody>
   </table>`;
+}
+
+// "Include" — finance provides the booth value that should have been on the deal,
+// which brings it back into commission on the next (auto-triggered) recalc.
+async function reviewInclude(hubspot_id, currency) {
+  const v = prompt(`Booth items value to pay commission on (${currency||'deal currency'}):`);
+  if (v === null) return;
+  const booth_value = parseFloat(String(v).replace(/[,$\s]/g,''));
+  if (!(booth_value > 0)) { toast('Enter a positive number'); return; }
+  reviewSet(hubspot_id, 'include', booth_value);
+}
+
+async function reviewSet(hubspot_id, status, booth_value) {
+  const res = await apiPost({action:'set_booth_review', hubspot_id, status, booth_value: booth_value||0});
+  if (!res.ok) { toast('Error: '+res.error); return; }
+  const d = missingCache.find(x=>String(x.hubspot_id)===String(hubspot_id));
+  if (status==='include') {
+    // resolved with a value → it's no longer "missing", drop it from the list
+    missingCache = missingCache.filter(x=>String(x.hubspot_id)!==String(hubspot_id));
+    toast('Included in commission');
+  } else if (status==='clear') {
+    if (d) { d.review_status=''; d.review_note=''; }
+    toast('Review cleared');
+  } else {
+    if (d) d.review_status = status;
+    toast('Marked excluded');
+  }
+  renderMissing();
 }
 
 async function loadHistory() {

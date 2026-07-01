@@ -569,6 +569,7 @@ function calculateAll() {
   const deals    = readAll('Deals');
   const invoices = readAll('Invoices');
   const payments = readAll('Payments');
+  const reviewMap = boothReviewMap();   // finance booth overrides (include / exclude)
 
   // every map key goes through sid() so a number from sheets and a string
   // from the parser become the same key. THIS WAS THE BUG: dealMap used to
@@ -582,12 +583,13 @@ function calculateAll() {
   // does not add to the CAM's quota — they didn't close the deal.
   const attMap = new Map();
   deals.forEach(d => {
-    if (!d.booth_items_revenue || !d.close_quarter || !d.owner) return;
+    const booth = effectiveBooth(d, reviewMap);
+    if (!booth || !d.close_quarter || !d.owner) return;
     const cfg = REPS[d.owner];
     if (!cfg) return;
     const k = `${d.owner}|${d.close_quarter}`;
     const c = attMap.get(k) || {owner:d.owner, quarter:d.close_quarter, total:0, count:0};
-    c.total += Number(d.booth_items_revenue) || 0;
+    c.total += booth;
     c.count++;
     attMap.set(k, c);
   });
@@ -617,7 +619,7 @@ function calculateAll() {
     const inv_total = Number(deal.invoice_total) || 0; if (!inv_total) return;
 
     const amount      = Number(pay.amount) || 0;
-    const booth       = Number(deal.booth_items_revenue) || 0;
+    const booth       = effectiveBooth(deal, reviewMap);
     // proportion of invoice paid, capped ±2 to handle partial/split payments gracefully
     const prop        = Math.min(Math.max(amount / inv_total, -2), 2);
     const booth_pay   = booth * prop;
@@ -671,7 +673,7 @@ function calculateAll() {
     const inv_total = Number(d.invoice_total); if (!inv_total) return;
 
     const amount     = Number(d.paid_total);
-    const booth      = Number(d.booth_items_revenue) || 0;
+    const booth      = effectiveBooth(d, reviewMap);
     const prop       = Math.min(Math.max(amount / inv_total, -2), 2);
     const booth_pay  = booth * prop;
     const channel    = detectChannel(d.sales_channel);
@@ -898,12 +900,70 @@ function savePayouts(period, entries) {
 
 // 10. admin helpers
 
+// booth review — finance's decisions on the "missing booth items" deals.
+//   status 'excluded' = confirmed correctly out of commission (forces booth 0)
+//   status 'include'  = should count, using booth_value as the booth revenue
+// so finance can both CONFIRM an exclusion (it drops off the review list) and
+// pull a wrongly-dropped deal back into commission with the right number.
+const BR_H = ['hubspot_id','status','booth_value','note','reviewed_by','reviewed_at'];
+
+function getBoothReviews() {
+  return readAll('BoothReview').map(r => ({
+    hubspot_id:  sid(r.hubspot_id),
+    status:      sid(r.status),
+    booth_value: Number(r.booth_value) || 0,
+    note:        r.note        || '',
+    reviewed_by: r.reviewed_by || '',
+    reviewed_at: r.reviewed_at || '',
+  })).filter(r => r.hubspot_id);
+}
+
+function boothReviewMap() {
+  return new Map(getBoothReviews().map(r => [r.hubspot_id, r]));
+}
+
+// the booth revenue to actually use for a deal after any finance override
+function effectiveBooth(deal, reviewMap) {
+  const rev = reviewMap.get(sid(deal.hubspot_id));
+  if (rev && rev.status === 'excluded') return 0;
+  if (rev && rev.status === 'include' && rev.booth_value > 0) return rev.booth_value;
+  return Number(deal.booth_items_revenue) || 0;
+}
+
+// deals whose name hints they were never a booth sale (relocations, spare
+// parts, trials, freight...). a triage hint for finance only, never auto-applied
+const NON_BOOTH_RE = /relocat|replace|\btrial\b|sample|freight|deliver|handle|\bdoor\b|hinge|\bseal|\bkit\b|spare|\bpart\b|repair|swap|refund|credit/i;
+
+function setBoothReview(hubspot_id, status, booth_value, note, reviewed_by) {
+  const id = sid(hubspot_id);
+  if (!id) throw new Error('hubspot_id required');
+  const st = sid(status);
+  if (!['excluded','include','clear'].includes(st)) throw new Error('status must be excluded, include or clear');
+  if (st === 'include' && !(Number(booth_value) > 0)) throw new Error('include needs a positive booth value');
+  const rows = getBoothReviews().filter(r => r.hubspot_id !== id);
+  if (st !== 'clear') {
+    rows.push({
+      hubspot_id:  id,
+      status:      st,
+      booth_value: st === 'include' ? Number(booth_value) : 0,
+      note:        note        || '',
+      reviewed_by: reviewed_by || '',
+      reviewed_at: new Date().toISOString(),
+    });
+  }
+  writeAll('BoothReview', BR_H, rows);
+  // recompute so an include override flows into commission straight away
+  return calculateAll();
+}
+
 function getUnlinked() {
   const invoices = readAll('Invoices');
   const payments = readAll('Payments');
   const paidSet  = new Set(payments.map(p => sid(p.invoice_number)));
-  // invoices that have been paid but are not yet linked to a deal
-  return invoices.filter(i => !sid(i.deal_id) && paidSet.has(sid(i.invoice_number)));
+  // paid invoices, not yet linked to a deal, with a real value. nil / zero
+  // invoices are just noise in the linking list so they're dropped (finance ask)
+  return invoices.filter(i =>
+    !sid(i.deal_id) && paidSet.has(sid(i.invoice_number)) && Number(i.gross_amount) > 0);
 }
 
 function linkInvoice(invoice_number, hubspot_id) {
@@ -917,10 +977,27 @@ function linkInvoice(invoice_number, hubspot_id) {
 
 function getMissingBooth() {
   const deals = readAll('Deals');
-  return deals.filter(d =>
-    (Number(d.booth_items_revenue) === 0 || d.booth_missing) &&
-    Number(d.invoice_total) > 0
-  );
+  const reviewMap = boothReviewMap();
+  return deals
+    // only deals with a real invoice — nil-value deals are dropped (finance ask)
+    .filter(d => Number(d.invoice_total) > 0)
+    // still "missing" if, after any override, there's no booth revenue to pay on.
+    // an 'include' with a value resolves to booth > 0 and drops off the list.
+    .filter(d => effectiveBooth(d, reviewMap) === 0)
+    .map(d => {
+      const rev = reviewMap.get(sid(d.hubspot_id));
+      return {
+        hubspot_id:       sid(d.hubspot_id),
+        owner:            d.owner || '',
+        deal_name:        d.deal_name || '',
+        currency:         d.currency || 'USD',
+        invoice_total:    Number(d.invoice_total) || 0,
+        close_date:       toIso(d.close_date),
+        review_status:    rev ? rev.status : '',
+        review_note:      rev ? rev.note   : '',
+        likely_non_booth: NON_BOOTH_RE.test(String(d.deal_name || '')),
+      };
+    });
 }
 
 // 11. api routing, god i wish we could do it all by api
@@ -936,6 +1013,7 @@ function doGet(e) {
     else if (action === 'attainment') data = readAll('Attainment');
     else if (action === 'missing')    data = getMissingBooth();
     else if (action === 'fx_rates')   data = getFxRates();
+    else if (action === 'booth_reviews') data = getBoothReviews();
     else return jsonOut({ok:false, error:'unknown action: '+action});
     return jsonOut({ok:true, data});
   } catch(err) {
@@ -956,6 +1034,7 @@ function doPost(e) {
     else if (action === 'link_invoice')   result = linkInvoice(body.invoice_number, body.hubspot_id);
     else if (action === 'set_fx_rate')    result = setFxRate(body.currency, body.effective_date, body.rate);
     else if (action === 'delete_fx_rate') result = deleteFxRate(body.currency, body.effective_date);
+    else if (action === 'set_booth_review') result = setBoothReview(body.hubspot_id, body.status, body.booth_value, body.note, body.reviewed_by);
     else return jsonOut({ok:false, error:'unknown action: '+action});
     return jsonOut({ok:true, ...result});
   } catch(err) {
