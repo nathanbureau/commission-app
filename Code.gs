@@ -1000,6 +1000,125 @@ function getMissingBooth() {
     });
 }
 
+// 10b. hubspot direct sync — pull deals straight from the API so nobody has to
+// export the "Commission Calculator Data" CSV every month. reads a HubSpot
+// private-app token from Script Properties (Project Settings > Script
+// Properties > add HUBSPOT_TOKEN). maps deals into the exact shape
+// importHubspot() already expects, then reuses that whole path.
+// property names are the Invoice Stack app fields (is_*) discovered from the portal.
+
+const HS_BASE  = 'https://api.hubapi.com';
+const HS_PROPS = ['dealname','hubspot_owner_id','deal_currency_code','closedate',
+  'sales_channel','booths_items_total_revenue','is_invoice_total','is_paidtotal',
+  'is_invoice_status','is_lastpaymentdate','is_invoicenumbers','is_overduetotal',
+  'partnership_owner'];
+
+function hsToken_() {
+  const t = PropertiesService.getScriptProperties().getProperty('HUBSPOT_TOKEN');
+  if (!t) throw new Error('No HUBSPOT_TOKEN set. Add it in Project Settings > Script Properties (your HubSpot private-app token).');
+  return t;
+}
+
+// fetch with a small retry on 429 / 5xx so a rate-limit blip doesn't kill a sync
+function hsFetch_(url, options) {
+  options = options || {};
+  options.muteHttpExceptions = true;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const resp = UrlFetchApp.fetch(url, options);
+    const code = resp.getResponseCode();
+    if (code === 429 || code >= 500) { Utilities.sleep(600 * (attempt + 1)); continue; }
+    if (code >= 400) throw new Error('HubSpot ' + code + ': ' + resp.getContentText().slice(0, 300));
+    return JSON.parse(resp.getContentText());
+  }
+  throw new Error('HubSpot kept rate-limiting after 5 tries');
+}
+
+// owner id -> "First Last" (deal owner + partnership owner are stored as ids via api)
+function hsOwners_(token) {
+  const map = {};
+  let after = '';
+  do {
+    const url = HS_BASE + '/crm/v3/owners?limit=100' + (after ? '&after=' + after : '');
+    const data = hsFetch_(url, {headers: {authorization: 'Bearer ' + token}});
+    (data.results || []).forEach(o => {
+      map[String(o.id)] = [o.firstName, o.lastName].filter(Boolean).join(' ').trim() || o.email || '';
+    });
+    after = data.paging && data.paging.next ? data.paging.next.after : '';
+  } while (after);
+  return map;
+}
+
+// hubspot hands dates back as ISO strings or (sometimes) epoch millis
+function hsDate_(v) {
+  if (v == null || v === '') return '';
+  const s = String(v).trim();
+  if (/^\d{11,}$/.test(s)) return toIso(new Date(Number(s)));
+  return toIso(s);
+}
+
+// "YYYY Qn" from an iso date, matching the old CSV close_quarter (2025+ only)
+function qOfIso_(iso) {
+  if (!iso) return '';
+  const y = Number(iso.slice(0, 4)), mo = Number(iso.slice(5, 7));
+  if (!y || y < 2025 || !mo) return '';
+  return y + ' Q' + Math.ceil(mo / 3);
+}
+
+function syncHubspot() {
+  const token  = hsToken_();
+  const owners = hsOwners_(token);
+  const records = [];
+  let after = '';
+  // pull every deal that has generated at least one invoice (the commission-
+  // relevant set). HAS_PROPERTY works on the Invoice Stack calculated field.
+  do {
+    const body = {
+      limit: 100,
+      properties: HS_PROPS,
+      filterGroups: [{ filters: [{ propertyName: 'is_invoicenumbers', operator: 'HAS_PROPERTY' }] }],
+      sorts: [{ propertyName: 'hs_object_id', direction: 'ASCENDING' }],
+    };
+    if (after) body.after = after;
+    const data = hsFetch_(HS_BASE + '/crm/v3/objects/deals/search', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { authorization: 'Bearer ' + token },
+      payload: JSON.stringify(body),
+    });
+    (data.results || []).forEach(d => {
+      const p  = d.properties || {};
+      const bt = Number(p.booths_items_total_revenue) || 0;
+      const it = Number(p.is_invoice_total) || 0;
+      const pd = Number(p.is_paidtotal) || 0;
+      const closeIso = hsDate_(p.closedate);
+      records.push({
+        hubspot_id:          String(d.id),
+        deal_name:           p.dealname || '',
+        owner:               owners[String(p.hubspot_owner_id)] || '',
+        currency:            p.deal_currency_code || 'USD',
+        close_date:          closeIso,
+        close_quarter:       qOfIso_(closeIso),
+        sales_channel:       p.sales_channel || '',
+        booth_items_revenue: bt,
+        invoice_total:       it,
+        paid_total:          pd,
+        invoice_status:      p.is_invoice_status || '',
+        paid_date:           hsDate_(p.is_lastpaymentdate),
+        invoice_numbers:     p.is_invoicenumbers || '',
+        booth_missing:       !bt && (pd > 0 || it > 0),
+        // partnership_owner comes back as an owner id via the api; resolve to a name
+        partnership_owner:   owners[String(p.partnership_owner)] || p.partnership_owner || '',
+      });
+    });
+    after = data.paging && data.paging.next ? data.paging.next.after : '';
+  } while (after);
+
+  // reuse the existing importer (writes Deals, re-matches invoices, logs, and
+  // cleanOwner-normalises names) so behaviour is identical to a CSV import
+  const res = importHubspot(records);
+  return { fetched: records.length, ...res };
+}
+
 // 11. api routing, god i wish we could do it all by api
 
 function doGet(e) {
@@ -1035,6 +1154,7 @@ function doPost(e) {
     else if (action === 'set_fx_rate')    result = setFxRate(body.currency, body.effective_date, body.rate);
     else if (action === 'delete_fx_rate') result = deleteFxRate(body.currency, body.effective_date);
     else if (action === 'set_booth_review') result = setBoothReview(body.hubspot_id, body.status, body.booth_value, body.note, body.reviewed_by);
+    else if (action === 'sync_hubspot')    result = syncHubspot();
     else return jsonOut({ok:false, error:'unknown action: '+action});
     return jsonOut({ok:true, ...result});
   } catch(err) {

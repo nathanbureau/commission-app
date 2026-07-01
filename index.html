@@ -429,9 +429,13 @@ td.mono { font-variant-numeric:tabular-nums; }
   </div>
 
   <div class="sec-lbl">HubSpot</div>
+  <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+    <button class="btn btn-orange" id="btn-hs-sync" onclick="syncHubspotApi()">Sync from HubSpot</button>
+    <span class="abar-note">Pulls deals straight from HubSpot by API — no CSV needed. Run Calculate afterwards.</span>
+  </div>
   <div class="ucard" id="box-hs" onclick="document.getElementById('file-hs').click()" style="margin-bottom:24px">
-    <div class="uc-name">HubSpot Deals</div>
-    <div class="uc-sub">Commission Calculator Data report, all regions, all columns</div>
+    <div class="uc-name">HubSpot Deals — CSV fallback</div>
+    <div class="uc-sub">Only needed if the API sync is unavailable. Commission Calculator Data report, all regions, all columns</div>
     <div class="uc-file" id="fname-hs">Click to upload CSV</div>
     <div class="uc-acts">
       <button class="btn btn-navy" style="font-size:10px;padding:7px 16px" id="btn-hs" disabled
@@ -1000,6 +1004,17 @@ async function importSource(key) {
   } catch (e) { toast('Parse error: '+e.message); }
   btn.textContent = orig;
   btn.disabled    = false;
+}
+
+async function syncHubspotApi() {
+  const btn = document.getElementById('btn-hs-sync');
+  btn.innerHTML = '<span class="spin"></span> Syncing…';
+  btn.disabled  = true;
+  const res = await apiPost({action:'sync_hubspot'});
+  btn.innerHTML = 'Sync from HubSpot';
+  btn.disabled  = false;
+  if (res.ok) toast(`Synced ${res.fetched||0} deals · ${res.matched||0} invoices matched — now run Calculate`);
+  else toast('Error: '+res.error);
 }
 
 async function calculate() {
