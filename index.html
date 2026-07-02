@@ -81,6 +81,10 @@ body {
 
 /* ─ pages ───────────────────────────────────────────────────────────────── */
 .page { display:none; max-width:1100px; margin:0 auto; padding:40px 32px 80px; }
+/* admin has wide tables + a live deal search — give it the full page width and
+   keep rows from reflowing while you type */
+#page-admin { max-width:none; }
+#page-admin .tbl-wrap, #page-admin table { width:100%; }
 .page.active { display:block; }
 
 /* ─ page heading ─────────────────────────────────────────────────────────── */
@@ -1396,12 +1400,12 @@ function renderUnlinked() {
       <td style="font-size:11px">${inv.invoice_date||''}</td>
       <td class="r mono" style="font-size:12px">${fmt(inv.gross_amount,'USD')}</td>
       <td>
-        <div style="display:flex;gap:6px;align-items:center;min-width:320px">
+        <div style="display:flex;gap:8px;align-items:center">
           <input type="text" placeholder="Search deals…" class="s-input"
-            style="margin:0;flex:1;font-size:11px;padding:5px 8px"
+            style="margin:0;width:280px;flex:none;font-size:12px;padding:6px 9px"
             oninput="searchDeals(this,'${inv.invoice_number}')">
           <select id="dsel-${inv.invoice_number}"
-            style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg)">
+            style="width:340px;flex:none;font-size:12px;padding:6px 9px;border:1px solid var(--border);border-radius:4px;background:var(--bg)">
             <option value="">-- select --</option>
           </select>
           <button class="btn btn-navy" style="font-size:10px;padding:6px 12px"
