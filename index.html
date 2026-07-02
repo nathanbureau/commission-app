@@ -392,6 +392,7 @@ td.mono { font-variant-numeric:tabular-nums; }
     <button class="hdr-btn active" onclick="nav('pay',this)">Pay</button>
     <button class="hdr-btn"        onclick="nav('import',this)">Import</button>
     <button class="hdr-btn"        onclick="nav('admin',this)">Admin</button>
+    <button class="hdr-btn"        onclick="nav('cams',this)">CAMs</button>
   </div>
 </div>
 
@@ -585,6 +586,28 @@ td.mono { font-variant-numeric:tabular-nums; }
   </div>
 </div>
 
+<!-- cams -->
+<div id="page-cams" class="page">
+  <div class="ph">
+    <div>
+      <div class="ph-title">CAM Partnerships</div>
+      <div class="ph-sub">Every deal each CAM earned their 25% partnership share on, by payment date. For channel sign-off and KPI recognition.</div>
+    </div>
+    <button class="btn btn-navy" onclick="downloadCamReport()" id="btn-cam-dl">Download Excel</button>
+  </div>
+  <div class="row">
+    <span class="lbl">From</span>
+    <input type="date" id="cam-from" style="font-family:var(--sg);font-size:13px;border:1px solid var(--border);border-radius:4px;padding:7px 10px;background:var(--bg);color:var(--text);">
+    <span class="lbl">To</span>
+    <input type="date" id="cam-to" style="font-family:var(--sg);font-size:13px;border:1px solid var(--border);border-radius:4px;padding:7px 10px;background:var(--bg);color:var(--text);">
+    <button class="btn btn-navy" onclick="loadCamReport()" style="padding:7px 20px">Load</button>
+  </div>
+  <div id="cam-metrics" class="metrics" style="display:none"></div>
+  <div class="tbl-wrap">
+    <div id="cam-table"><div class="empty">Select a period above</div></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -642,6 +665,8 @@ function initDates() {
   // default: first of current month to today
   document.getElementById('date-from').value = `${y}-${m}-01`;
   document.getElementById('date-to').value   = `${y}-${m}-${d}`;
+  document.getElementById('cam-from').value  = `${y}-${m}-01`;
+  document.getElementById('cam-to').value    = `${y}-${m}-${d}`;
 }
 
 /* ─ payout ──────────────────────────────────────────────────────────────── */
@@ -1553,6 +1578,111 @@ async function loadHistory() {
     </tr>`).join('')}
     </tbody>
   </table>`;
+}
+
+/* ─ cam report ─────────────────────────────────────────────────────────────── */
+// partnership deals each CAM earned their 25% on, in the chosen payment window.
+// built entirely from the payout response — the is_partner lines on each CAM.
+let camData  = [];
+let camRange = '';
+
+async function loadCamReport() {
+  const from = document.getElementById('cam-from').value;
+  const to   = document.getElementById('cam-to').value;
+  if (!from || !to) { toast('Select a date range'); return; }
+  if (from > to)    { toast('Start must be before end'); return; }
+  document.getElementById('cam-table').innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('cam-metrics').style.display = 'none';
+  const res = await apiGet('payout', {start_date:from, end_date:to});
+  if (!res.ok) { toast('Error: '+res.error); return; }
+  camRange = `${from}_${to}`;
+  camData = (res.data || [])
+    .filter(r => r.level === 'CAM')
+    .map(r => ({
+      cam: r.rep_name, region: r.region, currency: r.currency,
+      deals: (r.deals || []).filter(d => d.is_partner),
+    }))
+    .filter(r => r.deals.length)
+    .sort((a, b) => a.cam.localeCompare(b.cam));
+  renderCamReport();
+}
+
+function renderCamReport() {
+  const c  = document.getElementById('cam-table');
+  const mr = document.getElementById('cam-metrics');
+  if (!camData.length) {
+    mr.style.display = 'none';
+    c.innerHTML = '<div class="empty">No CAM partnership deals paid in this period</div>';
+    return;
+  }
+  const totalDeals = camData.reduce((s, r) => s + r.deals.length, 0);
+  mr.style.display = 'grid';
+  mr.innerHTML = `
+    <div class="metric"><div class="metric-lbl">CAMs with Partnerships</div><div class="metric-val">${camData.length}</div></div>
+    <div class="metric"><div class="metric-lbl">Partnership Deals</div><div class="metric-val">${totalDeals}</div></div>
+    <div class="metric"><div class="metric-lbl">Period</div><div class="metric-val" style="font-size:15px">${camRange.replace('_',' → ')}</div></div>`;
+
+  c.innerHTML = `<table>
+    <thead><tr>
+      <th>CAM</th><th>Deal</th><th>AE / Owner</th><th>Pay Date</th>
+      <th class="r">Booth Value</th><th class="r">25% Commission</th>
+    </tr></thead>
+    <tbody>
+    ${camData.map(r => {
+      const sub = r.deals.reduce((s, d) => s + (d.commission || 0), 0);
+      return r.deals.map((d, i) => `<tr>
+        <td>${i === 0 ? `<span class="rep-n">${r.cam}</span> <span class="rep-t">${r.region}</span>` : ''}</td>
+        <td style="font-size:12px">${d.deal_name || ''}${d.orig_currency && d.orig_currency !== r.currency ? ` <span class="dim" style="font-size:10px">(${d.orig_currency})</span>` : ''}</td>
+        <td style="font-size:12px">${d.partner_of || ''}</td>
+        <td style="font-size:11px">${d.payment_date || ''}</td>
+        <td class="r mono">${fmt(d.booth_payable, r.currency)}</td>
+        <td class="r mono"><strong>${fmt(d.commission, r.currency)}</strong></td>
+      </tr>`).join('') + `<tr class="totrow">
+        <td></td><td colspan="3">${r.cam} — ${r.deals.length} deal${r.deals.length > 1 ? 's' : ''}</td>
+        <td></td><td class="r">${fmt(sub, r.currency)}</td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table>`;
+}
+
+function downloadCamReport() {
+  if (!camData.length) { toast('Load a period first'); return; }
+  const btn = document.getElementById('btn-cam-dl');
+  btn.innerHTML = '<span class="spin spin-dk"></span> Generating…';
+  btn.disabled  = true;
+  try {
+    const wb = XLSX.utils.book_new();
+    const head = ['CAM','Region','AE / Owner','Deal','Customer','Pay Date','Booth Value','Effective Rate','25% Commission','Currency'];
+    const rows = [
+      ['CAM Partnership Report'],
+      [`Period (payment date): ${camRange.replace('_',' to ')}`],
+      [`Generated: ${new Date().toISOString().slice(0,10)}`],
+      [],
+      head,
+    ];
+    camData.forEach(r => {
+      r.deals.forEach(d => rows.push([
+        r.cam, r.region, d.partner_of || '', d.deal_name || '', d.customer_name || '',
+        d.payment_date || '', d.booth_payable || 0, d.comm_rate || 0, d.commission || 0, r.currency,
+      ]));
+      const sub = r.deals.reduce((s, d) => s + (d.commission || 0), 0);
+      rows.push([`${r.cam} total`, '', '', '', '', '', '', '', sub, r.currency]);
+      rows.push([]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{wch:22},{wch:7},{wch:20},{wch:34},{wch:24},{wch:12},{wch:14},{wch:12},{wch:14},{wch:8}];
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for (let R = 5; R <= range.e.r; R++) {
+      [6, 8].forEach(C => { const a = XLSX.utils.encode_cell({r:R, c:C}); if (ws[a] && typeof ws[a].v === 'number') ws[a].z = '#,##0.00'; });
+      const rc = XLSX.utils.encode_cell({r:R, c:7}); if (ws[rc] && typeof ws[rc].v === 'number') ws[rc].z = '0.00%';
+    }
+    XLSX.utils.book_append_sheet(wb, ws, 'CAM Partnerships');
+    XLSX.writeFile(wb, `cam_partnerships_${camRange}.xlsx`);
+    toast('Excel downloaded');
+  } catch (e) { toast('Error: ' + e.message); }
+  btn.innerHTML = 'Download Excel';
+  btn.disabled  = false;
 }
 
 /* ─ init ─────────────────────────────────────────────────────────────────── */
