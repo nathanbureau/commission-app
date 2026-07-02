@@ -390,6 +390,7 @@ td.mono { font-variant-numeric:tabular-nums; }
   <div class="hdr-sub">Commission</div>
   <div class="hdr-nav">
     <button class="hdr-btn active" onclick="nav('pay',this)">Pay</button>
+    <button class="hdr-btn"        onclick="nav('accel',this)">Accelerators</button>
     <button class="hdr-btn"        onclick="nav('import',this)">Import</button>
     <button class="hdr-btn"        onclick="nav('admin',this)">Admin</button>
     <button class="hdr-btn"        onclick="nav('cams',this)">CAMs</button>
@@ -586,6 +587,28 @@ td.mono { font-variant-numeric:tabular-nums; }
   </div>
 </div>
 
+<!-- accelerators -->
+<div id="page-accel" class="page">
+  <div class="ph">
+    <div>
+      <div class="ph-title">Accelerators</div>
+      <div class="ph-sub">Everything each rep closed (booth revenue) in the window, and the accelerator it earns them (booth × their quarterly tier rate). By deal close date.</div>
+    </div>
+    <button class="btn btn-navy" onclick="downloadAccelReport()" id="btn-accel-dl">Download Excel</button>
+  </div>
+  <div class="row">
+    <span class="lbl">From</span>
+    <input type="date" id="accel-from" style="font-family:var(--sg);font-size:13px;border:1px solid var(--border);border-radius:4px;padding:7px 10px;background:var(--bg);color:var(--text);">
+    <span class="lbl">To</span>
+    <input type="date" id="accel-to" style="font-family:var(--sg);font-size:13px;border:1px solid var(--border);border-radius:4px;padding:7px 10px;background:var(--bg);color:var(--text);">
+    <button class="btn btn-navy" onclick="loadAccelReport()" style="padding:7px 20px">Load</button>
+  </div>
+  <div id="accel-metrics" class="metrics" style="display:none"></div>
+  <div class="tbl-wrap">
+    <div id="accel-table"><div class="empty">Select a period above</div></div>
+  </div>
+</div>
+
 <!-- cams -->
 <div id="page-cams" class="page">
   <div class="ph">
@@ -667,6 +690,10 @@ function initDates() {
   document.getElementById('date-to').value   = `${y}-${m}-${d}`;
   document.getElementById('cam-from').value  = `${y}-${m}-01`;
   document.getElementById('cam-to').value    = `${y}-${m}-${d}`;
+  // accelerators are quarterly — default to the current quarter to date
+  const qs = String(Math.floor(today.getMonth()/3)*3 + 1).padStart(2,'0');
+  document.getElementById('accel-from').value = `${y}-${qs}-01`;
+  document.getElementById('accel-to').value   = `${y}-${m}-${d}`;
 }
 
 /* ─ payout ──────────────────────────────────────────────────────────────── */
@@ -1578,6 +1605,133 @@ async function loadHistory() {
     </tr>`).join('')}
     </tbody>
   </table>`;
+}
+
+/* ─ accelerator report ─────────────────────────────────────────────────────── */
+// everything each rep closed (booth revenue) in a date range and the accelerator
+// it earns them (booth × their quarterly tier rate). close-date based; built from
+// deals + attainment + booth-review overrides — no backend change.
+let accelData  = [];
+let accelRange = '';
+
+async function loadAccelReport() {
+  const from = document.getElementById('accel-from').value;
+  const to   = document.getElementById('accel-to').value;
+  if (!from || !to) { toast('Select a date range'); return; }
+  if (from > to)    { toast('Start must be before end'); return; }
+  document.getElementById('accel-table').innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('accel-metrics').style.display = 'none';
+  const [dr, ar, br] = await Promise.all([apiGet('deals'), apiGet('attainment'), apiGet('booth_reviews')]);
+  if (!dr.ok) { toast('Error: '+dr.error); return; }
+  const attMap = {};
+  (ar.ok ? ar.data : []).forEach(a => { attMap[`${a.rep_name}|${a.close_quarter}`] = Number(a.tier_rate) || 0; });
+  const revMap = {};
+  (br.ok ? br.data : []).forEach(r => { revMap[String(r.hubspot_id)] = r; });
+  const effB = (d) => {
+    const rev = revMap[String(d.hubspot_id)];
+    if (rev && rev.status === 'excluded') return 0;
+    if (rev && rev.status === 'include' && Number(rev.booth_value) > 0) return Number(rev.booth_value);
+    return Number(d.booth_items_revenue) || 0;
+  };
+  accelRange = `${from}_${to}`;
+  const byRep = {};
+  (dr.data || []).forEach(d => {
+    const cd = String(d.close_date || '').slice(0,10);
+    if (!cd || cd < from || cd > to || !d.owner) return;
+    const booth = effB(d);
+    if (!booth) return;
+    const rate = attMap[`${d.owner}|${d.close_quarter}`] || 0;
+    (byRep[d.owner] = byRep[d.owner] || []).push({
+      deal_name: d.deal_name || '', close_date: cd, close_quarter: d.close_quarter || '',
+      sales_channel: d.sales_channel || '', currency: d.currency || 'USD',
+      booth, accel_rate: rate, accelerator: booth * rate,
+    });
+  });
+  accelData = Object.keys(byRep).sort().map(rep => ({
+    rep, currency: byRep[rep][0].currency,
+    deals: byRep[rep].sort((a, b) => (a.close_date || '').localeCompare(b.close_date || '')),
+  }));
+  renderAccelReport();
+}
+
+function renderAccelReport() {
+  const c  = document.getElementById('accel-table');
+  const mr = document.getElementById('accel-metrics');
+  if (!accelData.length) {
+    mr.style.display = 'none';
+    c.innerHTML = '<div class="empty">No closed-won booth deals in this period</div>';
+    return;
+  }
+  const totalDeals = accelData.reduce((s, r) => s + r.deals.length, 0);
+  mr.style.display = 'grid';
+  mr.innerHTML = `
+    <div class="metric"><div class="metric-lbl">Reps</div><div class="metric-val">${accelData.length}</div></div>
+    <div class="metric"><div class="metric-lbl">Closed-Won Deals</div><div class="metric-val">${totalDeals}</div></div>
+    <div class="metric"><div class="metric-lbl">Period (close date)</div><div class="metric-val" style="font-size:15px">${accelRange.replace('_',' → ')}</div></div>`;
+  c.innerHTML = `<table>
+    <thead><tr>
+      <th>Rep</th><th>Deal</th><th>Close</th><th>Quarter</th>
+      <th class="r">Booth Value</th><th class="r">Accel %</th><th class="r">Accelerator</th>
+    </tr></thead>
+    <tbody>
+    ${accelData.map(r => {
+      const tBooth = r.deals.reduce((s, d) => s + d.booth, 0);
+      const tAccel = r.deals.reduce((s, d) => s + d.accelerator, 0);
+      return r.deals.map((d, i) => `<tr>
+        <td>${i === 0 ? `<span class="rep-n">${r.rep}</span>` : ''}</td>
+        <td style="font-size:12px">${d.deal_name}</td>
+        <td style="font-size:11px">${d.close_date}</td>
+        <td style="font-size:11px">${d.close_quarter}</td>
+        <td class="r mono">${fmt(d.booth, r.currency)}</td>
+        <td class="r mono dim">${d.accel_rate ? (d.accel_rate*100).toFixed(2)+'%' : '-'}</td>
+        <td class="r mono ${d.accelerator > 0 ? 'or' : ''}">${d.accelerator > 0 ? fmt(d.accelerator, r.currency) : '<span class="dim">-</span>'}</td>
+      </tr>`).join('') + `<tr class="totrow">
+        <td></td><td colspan="3">${r.rep} — ${r.deals.length} deal${r.deals.length > 1 ? 's' : ''}</td>
+        <td class="r">${fmt(tBooth, r.currency)}</td><td></td><td class="r">${fmt(tAccel, r.currency)}</td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table>`;
+}
+
+function downloadAccelReport() {
+  if (!accelData.length) { toast('Load a period first'); return; }
+  const btn = document.getElementById('btn-accel-dl');
+  btn.innerHTML = '<span class="spin spin-dk"></span> Generating…';
+  btn.disabled  = true;
+  try {
+    const wb = XLSX.utils.book_new();
+    const head = ['Rep','Deal','Close Date','Close Quarter','Sales Channel','Booth Value','Accel Rate','Accelerator','Currency'];
+    const rows = [
+      ['Accelerator Report — closed-won booth revenue'],
+      [`Period (close date): ${accelRange.replace('_',' to ')}`],
+      [`Generated: ${new Date().toISOString().slice(0,10)}`],
+      [],
+      head,
+    ];
+    accelData.forEach(r => {
+      r.deals.forEach(d => rows.push([
+        r.rep, d.deal_name, d.close_date, d.close_quarter, d.sales_channel,
+        d.booth, d.accel_rate, d.accelerator, r.currency,
+      ]));
+      const tB = r.deals.reduce((s, d) => s + d.booth, 0);
+      const tA = r.deals.reduce((s, d) => s + d.accelerator, 0);
+      rows.push([`${r.rep} total`, '', '', '', '', tB, '', tA, r.currency]);
+      rows.push([]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{wch:22},{wch:34},{wch:12},{wch:11},{wch:18},{wch:14},{wch:10},{wch:14},{wch:8}];
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for (let R = 5; R <= range.e.r; R++) {
+      [5, 7].forEach(C => { const a = XLSX.utils.encode_cell({r:R, c:C}); if (ws[a] && typeof ws[a].v === 'number') ws[a].z = '#,##0.00'; });
+      const rc = XLSX.utils.encode_cell({r:R, c:6}); if (ws[rc] && typeof ws[rc].v === 'number') ws[rc].z = '0.00%';
+    }
+    XLSX.utils.book_append_sheet(wb, ws, 'Accelerators');
+    XLSX.writeFile(wb, `accelerators_${accelRange}.xlsx`);
+    toast('Excel downloaded');
+  } catch (e) { toast('Error: ' + e.message); }
+  btn.innerHTML = 'Download Excel';
+  btn.disabled  = false;
 }
 
 /* ─ cam report ─────────────────────────────────────────────────────────────── */
