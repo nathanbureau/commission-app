@@ -424,14 +424,24 @@ td.mono { font-variant-numeric:tabular-nums; }
   <div class="ph">
     <div>
       <div class="ph-title">Import</div>
-      <div class="ph-sub">Upload source files then run Calculate. Safe to re-run at any time.</div>
+      <div class="ph-sub">One click to pull everything, or upload files manually below. Safe to re-run any time.</div>
     </div>
   </div>
 
-  <div class="sec-lbl">HubSpot</div>
+  <!-- one-click sync everything -->
+  <div class="calc-bar" style="margin-bottom:28px">
+    <div>
+      <div class="calc-lbl">Sync Everything</div>
+      <div class="calc-sub">Pulls all deals from HubSpot and all invoices &amp; payments from Xero + QuickBooks — no file uploads. Calculates automatically when it finishes.</div>
+      <div class="calc-res" id="syncall-result"></div>
+    </div>
+    <button class="btn btn-orange" onclick="syncAll()" id="btn-syncall" style="font-size:13px;padding:14px 28px">&#8635; Sync Everything</button>
+  </div>
+
+  <div class="sec-lbl">Or import files manually</div>
   <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-    <button class="btn btn-orange" id="btn-hs-sync" onclick="syncHubspotApi()">Sync from HubSpot</button>
-    <span class="abar-note">Pulls deals straight from HubSpot by API — no CSV needed. Run Calculate afterwards.</span>
+    <button class="btn btn-navy" id="btn-hs-sync" onclick="syncHubspotApi()" style="font-size:10px;padding:7px 16px">Sync HubSpot only</button>
+    <span class="abar-note">Pulls just HubSpot deals by API. Run Calculate afterwards.</span>
   </div>
   <div class="ucard" id="box-hs" onclick="document.getElementById('file-hs').click()" style="margin-bottom:24px">
     <div class="uc-name">HubSpot Deals — CSV fallback</div>
@@ -1015,6 +1025,29 @@ async function syncHubspotApi() {
   btn.disabled  = false;
   if (res.ok) toast(`Synced ${res.fetched||0} deals · ${res.matched||0} invoices matched — now run Calculate`);
   else toast('Error: '+res.error);
+}
+
+// one button: HubSpot deals + Xero/QuickBooks invoices & payments, then calc
+async function syncAll() {
+  const btn = document.getElementById('btn-syncall');
+  const res = document.getElementById('syncall-result');
+  btn.innerHTML = '<span class="spin"></span> Syncing…';
+  btn.disabled  = true;
+  try {
+    res.textContent = 'Pulling HubSpot deals…';
+    const hs = await apiPost({action:'sync_hubspot'});
+    if (!hs.ok) throw new Error('HubSpot — ' + hs.error);
+    res.textContent = `HubSpot: ${hs.fetched||0} deals. Pulling Xero + QuickBooks…`;
+    const acc = await apiPost({action:'sync_accounting'});
+    if (!acc.ok) throw new Error('Accounting — ' + acc.error);
+    res.textContent = `Done — ${hs.fetched||0} deals, ${acc.lines||0} commission lines. Head to the Pay tab.`;
+    toast('All data synced');
+  } catch (e) {
+    res.textContent = 'Error: ' + e.message;
+    toast('Sync failed: ' + e.message);
+  }
+  btn.innerHTML = '↻ Sync Everything';
+  btn.disabled  = false;
 }
 
 async function calculate() {
