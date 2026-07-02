@@ -1421,8 +1421,9 @@ function searchDeals(input, invNum) {
   const q=input.value.toLowerCase(), sel=document.getElementById(`dsel-${invNum}`);
   sel.innerHTML='<option value="">-- select --</option>';
   if(q.length<2||!dealsCache) return;
-  // only offer real (non-nil) deals as link targets
-  dealsCache.filter(d=>Number(d.invoice_total)>0 && ((d.deal_name||'').toLowerCase().includes(q)||(d.owner||'').toLowerCase().includes(q)))
+  // match any deal by name or owner (a deal invoiced only in Xero/QBO has £0
+  // HubSpot invoice total but still needs to be linkable)
+  dealsCache.filter(d=>(d.deal_name||'').toLowerCase().includes(q)||(d.owner||'').toLowerCase().includes(q))
     .slice(0,30).forEach(d=>{const o=document.createElement('option');o.value=d.hubspot_id;o.textContent=`${d.deal_name} | ${d.owner} | ${d.close_date||''}`;sel.appendChild(o);});
 }
 
